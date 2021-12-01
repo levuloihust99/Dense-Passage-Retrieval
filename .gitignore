@@ -65,3 +65,5 @@ config/*_full.json
 /nlp/models/
 **/vietnamese/*
 **/logs/*
+pretrained/
+/test*
