@@ -69,3 +69,4 @@ pretrained/
 /test*
 /checkpoints/
 /indexes/
+/results/
