@@ -1,9 +1,10 @@
+import os
 import tensorflow as tf
 
 from dual_encoder.configuration import DualEncoderConfig
 
 
-def create_dataset(
+def load_qa_dataset(
     config: DualEncoderConfig,
 ):
     dataset = tf.data.Dataset.list_files(config.data_tfrecord_dir + "/*")
@@ -29,6 +30,31 @@ def create_dataset(
     dataset = dataset.repeat()
     dataset = dataset.batch(batch_size=config.train_batch_size, drop_remainder=True)
     dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+
+    return dataset, num_examples
+
+
+def load_corpus_dataset(
+    config: DualEncoderConfig,
+):
+    input_pattern = os.path.join(config.data_dir, 'tfrecord/corpus') + "/*"
+    dataset = tf.data.Dataset.list_files(input_pattern)
+    dataset = dataset.interleave(
+        lambda x: tf.data.TFRecordDataset(x),
+        num_parallel_calls=tf.data.experimental.AUTOTUNE,
+        deterministic=False
+    )
+    num_examples = _get_num_examples(dataset)
+
+    name_to_features = {
+        "input_ids": tf.io.FixedLenFeature([config.context_max_seq_length], tf.int64),
+        "attention_mask": tf.io.FixedLenFeature([config.context_max_seq_length], tf.int64),
+    }
+
+    dataset = dataset.map(
+        lambda record: _decode_record(record, name_to_features),
+        num_parallel_calls=tf.data.AUTOTUNE
+    )
 
     return dataset, num_examples
 

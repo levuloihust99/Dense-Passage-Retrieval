@@ -1,5 +1,6 @@
 import os
 import json
+import tensorflow as tf
 
 
 class DualEncoderConfig(object):
@@ -35,11 +36,15 @@ class DualEncoderConfig(object):
         self.log_dir = 'logs'
 
         # TPU settings
-        self.use_tpu = False,
+        self.use_tpu = False
         self.tpu_name = None
         self.tpu_job_name = None
         self.tpu_zone = None
         self.gcp_project = None
+
+        self.checkpoint_path = None
+        self.data_tfrecord_dir = None
+        self.log_path = None
 
         self.update(**kwargs)
         try:
@@ -66,3 +71,9 @@ class DualEncoderConfig(object):
     @classmethod
     def from_json(cls, json_obj):
         return cls(**json_obj)
+
+    @classmethod
+    def from_json_file(cls, json_file):
+        with tf.io.gfile.GFile(json_file, 'r') as reader:
+            json_obj = json.load(reader)
+        return cls.from_json(json_obj)

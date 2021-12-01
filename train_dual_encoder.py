@@ -14,7 +14,7 @@ from dual_encoder.optimization import get_adamw
 from dual_encoder.trainer import DualEncoderTrainer
 from utils.setup import setup_distribute_strategy, setup_memory_growth
 from utils.logging import add_color_formater
-from dataloader.loader import create_dataset
+from dataloader.loader import load_qa_dataset
 
 
 logging.basicConfig(level=logging.INFO)
@@ -74,7 +74,7 @@ def main():
     # create dataset
     logger.info("Creating dataset...")
     start_time = time.perf_counter()
-    dataset, num_examples = create_dataset(config)
+    dataset, num_examples = load_qa_dataset(config)
     dist_dataset = strategy.distribute_datasets_from_function(
         lambda _: dataset
     )

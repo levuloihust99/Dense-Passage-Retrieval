@@ -68,3 +68,4 @@ config/*_full.json
 pretrained/
 /test*
 /checkpoints/
+/indexes/

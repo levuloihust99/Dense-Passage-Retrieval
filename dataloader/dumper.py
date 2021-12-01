@@ -1,7 +1,9 @@
+from ast import dump
 import tensorflow as tf
 import json
 import os
 import logging
+import argparse
 from typing import Text, Dict, List, Any
 from transformers import BertTokenizer
 
@@ -11,7 +13,7 @@ from dual_encoder.configuration import DualEncoderConfig
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def load_corpus(corpus_path: Text):
+def load_corpus_to_dict(corpus_path: Text):
     with tf.io.gfile.GFile(corpus_path, 'r') as reader:
         corpus = json.load(reader)
     corpus_restructured = {}
@@ -25,6 +27,16 @@ def load_corpus(corpus_path: Text):
         corpus_restructured[doc.get('law_id')] = articles_restructured
 
     return corpus_restructured
+
+
+def load_corpus_to_list(corpus_path: Text):
+    with tf.io.gfile.GFile(corpus_path, 'r') as reader:
+        corpus = json.load(reader)
+    corpus_res = []
+    for doc in corpus:
+        for article in doc.get('articles'):
+            corpus_res.append(dict(law_id=doc.get('law_id'), **article))
+    return corpus_res
 
 
 def load_train_data(train_data_path: Text):
@@ -90,7 +102,7 @@ def create_int_feature(values):
   return feature
 
 
-def dump(
+def dump_qa(
     query_context_pairs,
     tokenizer,
     query_max_seq_length: int,
@@ -127,26 +139,85 @@ def dump(
     logger.info("Done writing {} examples".format(counter))
 
 
+def dump_corpus(
+    corpus,
+    tokenizer,
+    context_max_seq_length: int,
+    tfrecord_dir,
+    num_examples_per_file: int = 5000
+):
+    counter = 0
+    idx = 0
+    example_writer = tf.io.TFRecordWriter(os.path.join(tfrecord_dir, 'data_{:03d}.tfrecord'.format(idx)))
+    for article in corpus:
+        context = {
+            'title': article.get('title'),
+            'text':  article.get('text')
+        }
+        context_inputs = tensorize_context(context, tokenizer, context_max_seq_length)
+        tf_example = tf.train.Example(features=tf.train.Features(feature={
+            'input_ids': create_int_feature(context_inputs.get('input_ids')),
+            'attention_mask': create_int_feature(context_inputs.get('attention_mask'))
+        }))
+
+        if counter % num_examples_per_file == 0 and counter > 0:
+            example_writer.close()
+            logger.info("Done writing {} examples".format(counter))
+            idx += 1
+            example_writer = tf.io.TFRecordWriter(os.path.join(tfrecord_dir, 'data_{:03d}.tfrecord'.format(idx)))
+        
+        example_writer.write(tf_example.SerializeToString())
+        counter += 1
+    
+    example_writer.close()
+    logger.info("Done writing {} examples".format(counter))
+
+
 def main():
-    config = DualEncoderConfig()
-    tfrecord_dir = config.data_tfrecord_dir
-    if not tf.io.gfile.exists(tfrecord_dir):
-        tf.io.gfile.makedirs(tfrecord_dir)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dump-corpus", action='store_const', const=True, default=False)
+    parser.add_argument("--dump-qa", action='store_const', const=True, default=False)
+    parser.add_argument("--config-path", default=None)
+    args = parser.parse_args()
 
-    corpus_path = os.path.join(config.data_dir, 'legal_corpus.json')
-    corpus = load_corpus(corpus_path)
-    train_data_path = os.path.join(config.data_dir, 'train_question_answer.json')
-    train_data = load_train_data(train_data_path)
-    query_context_pairs = build_query_context_pairs(corpus, train_data)
-
+    if args.config_path:
+        config = DualEncoderConfig.from_json_file(args.config_path)
+    else:
+        config = DualEncoderConfig()
     tokenizer = BertTokenizer.from_pretrained(config.tokenizer_path)
-    dump(
-        query_context_pairs=query_context_pairs,
-        tokenizer=tokenizer,
-        query_max_seq_length=config.query_max_seq_length,
-        context_max_seq_length=config.context_max_seq_length,
-        tfrecord_dir=tfrecord_dir,
-    )
+
+    if args.dump_qa:
+        qa_tfrecord_dir = config.data_tfrecord_dir
+        if not tf.io.gfile.exists(qa_tfrecord_dir):
+            tf.io.gfile.makedirs(qa_tfrecord_dir)
+
+        corpus_path = os.path.join(config.data_dir, 'legal_corpus.json')
+        corpus = load_corpus_to_dict(corpus_path)
+        train_data_path = os.path.join(config.data_dir, 'train_question_answer.json')
+        train_data = load_train_data(train_data_path)
+        query_context_pairs = build_query_context_pairs(corpus, train_data)
+        
+        dump_qa(
+            query_context_pairs=query_context_pairs,
+            tokenizer=tokenizer,
+            query_max_seq_length=config.query_max_seq_length,
+            context_max_seq_length=config.context_max_seq_length,
+            tfrecord_dir=qa_tfrecord_dir,
+        )
+    if args.dump_corpus:
+        corpus_tfrecord = os.path.join(config.data_dir, 'tfrecord/corpus')
+        if not tf.io.gfile.exists(corpus_tfrecord):
+            tf.io.gfile.makedirs(corpus_tfrecord)
+        
+        corpus_path = os.path.join(config.data_dir, 'legal_corpus.json')
+        corpus = load_corpus_to_list(corpus_path)
+
+        dump_corpus(
+            corpus=corpus,
+            tokenizer=tokenizer,
+            context_max_seq_length=config.context_max_seq_length,
+            tfrecord_dir=corpus_tfrecord,
+        )
 
 
 if __name__ == "__main__":
