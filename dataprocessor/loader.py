@@ -37,12 +37,13 @@ def load_qa_dataset(
 def load_corpus_dataset(
     config: DualEncoderConfig,
 ):
-    input_pattern = os.path.join(config.data_dir, 'tfrecord/corpus') + "/*"
-    dataset = tf.data.Dataset.list_files(input_pattern)
-    dataset = dataset.interleave(
-        lambda x: tf.data.TFRecordDataset(x),
-        num_parallel_calls=tf.data.experimental.AUTOTUNE,
-        deterministic=False
+    tfrecord_dir = os.path.join(config.data_dir, 'tfrecord', 'corpus')
+    list_files = tf.io.gfile.listdir(tfrecord_dir)
+    list_files.sort()
+    list_files = [os.path.join(tfrecord_dir, tfrecord_file) for tfrecord_file in list_files]
+    dataset = tf.data.Dataset.from_tensor_slices(list_files)
+    dataset = dataset.flat_map(
+        lambda x: tf.data.TFRecordDataset(x)
     )
     num_examples = _get_num_examples(dataset)
 

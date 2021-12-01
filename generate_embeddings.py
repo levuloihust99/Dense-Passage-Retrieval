@@ -5,14 +5,14 @@ import os
 from typing import Text, Dict, List, Union
 import tensorflow as tf
 
-from transformers import TFDistilBertModel
+from transformers import TFDistilBertModel, BertTokenizer
 from dataprocessor.loader import load_corpus_dataset
 
 from dual_encoder.configuration import DualEncoderConfig
 from dual_encoder.modeling import DualEncoder
 from utils.logging import add_color_formater
 from utils.setup import setup_memory_growth, setup_distribute_strategy
-from dataprocessor.dumper import load_corpus_to_list
+from dataprocessor.dumper import load_corpus_to_list, tensorize_context
 from indexing.faiss_indexer import DenseFlatIndexer
 
 
@@ -83,12 +83,15 @@ def main():
 
     dataset = dataset.batch(batch_size=config.eval_batch_size)
     dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+    dist_dataset = strategy.distribute_datasets_from_function(
+        lambda _: dataset
+    )
 
     # instantiate model
     with strategy.scope():
         context_encoder = load_context_encoder(config)
     
-    embeddings = generate_embeddings(context_encoder, dataset, strategy)
+    embeddings = generate_embeddings(context_encoder, dist_dataset, strategy)
     corpus = load_corpus_to_list(os.path.join(config.data_dir, 'legal_corpus.json'))
     embeddings = embeddings[:len(corpus)]
     embeddings = [e.numpy() for e in embeddings]
