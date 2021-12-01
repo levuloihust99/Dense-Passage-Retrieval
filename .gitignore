@@ -67,3 +67,4 @@ config/*_full.json
 **/logs/*
 pretrained/
 /test*
+/checkpoints/

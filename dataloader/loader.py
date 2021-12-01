@@ -12,6 +12,7 @@ def create_dataset(
         num_parallel_calls=tf.data.experimental.AUTOTUNE,
         deterministic=False
     )
+    num_examples = _get_num_examples(dataset)
 
     name_to_features = {
         "query_input_ids": tf.io.FixedLenFeature([config.query_max_seq_length], tf.int64),
@@ -29,7 +30,7 @@ def create_dataset(
     dataset = dataset.batch(batch_size=config.train_batch_size, drop_remainder=True)
     dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
-    return dataset
+    return dataset, num_examples
 
 
 def _decode_record(record, name_to_features):
@@ -45,3 +46,12 @@ def _decode_record(record, name_to_features):
         example[name] = t
 
     return example
+
+
+def _get_num_examples(dataset):
+    if tf.data.experimental.INFINITE_CARDINALITY == tf.data.experimental.cardinality(dataset):
+        return -1
+    num_examples = 0
+    for _ in dataset:
+        num_examples += 1
+    return num_examples

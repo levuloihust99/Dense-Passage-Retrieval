@@ -32,5 +32,6 @@ def setup_distribute_strategy(use_tpu=False, tpu_name=''):
 
 def setup_memory_growth():
     gpu_devices = tf.config.list_physical_devices('GPU')
-    for gpu in gpu_devices:
-        tf.config.experimental.set_memory_growth(gpu, True)
+    if gpu_devices:
+        for gpu in gpu_devices:
+            tf.config.experimental.set_memory_growth(gpu, True)

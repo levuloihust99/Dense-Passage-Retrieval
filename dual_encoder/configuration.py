@@ -13,7 +13,7 @@ class DualEncoderConfig(object):
         self.train_batch_size = 16
         self.eval_batch_size = 256
         self.num_train_steps = 10000
-        self.num_train_epochs = 40
+        self.num_train_epochs = None
 
         # optimization
         self.learning_rate = 5e-5
@@ -24,7 +24,7 @@ class DualEncoderConfig(object):
 
         # logging
         self.logging_steps = 100
-        self.save_checkpoint_freq = 1000
+        self.save_checkpoint_freq = 'epoch'
         self.keep_checkpoint_max = 5
 
         # default locations
@@ -42,6 +42,11 @@ class DualEncoderConfig(object):
         self.gcp_project = None
 
         self.update(**kwargs)
+        try:
+            self.save_checkpoint_freq = int(self.save_checkpoint_freq)
+        except:
+            assert self.save_checkpoint_freq == 'epoch', \
+                "Only `epoch` or integers are supported for `save_checkpoint_freq`. Current value: {}".format(self.save_checkpoint_freq)
 
         # derivatived configurations
         self.data_tfrecord_dir = os.path.join(self.data_dir, 'tfrecord')
