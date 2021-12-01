@@ -6,13 +6,13 @@ from typing import Text, Dict, List, Union
 import tensorflow as tf
 
 from transformers import TFDistilBertModel
-from dataloader.loader import load_corpus_dataset
+from dataprocessor.loader import load_corpus_dataset
 
 from dual_encoder.configuration import DualEncoderConfig
 from dual_encoder.modeling import DualEncoder
 from utils.logging import add_color_formater
 from utils.setup import setup_memory_growth, setup_distribute_strategy
-from dataloader.dumper import load_corpus_to_list
+from dataprocessor.dumper import load_corpus_to_list
 from indexing.faiss_indexer import DenseFlatIndexer
 
 

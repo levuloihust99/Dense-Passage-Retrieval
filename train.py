@@ -14,7 +14,7 @@ from dual_encoder.optimization import get_adamw
 from dual_encoder.trainer import DualEncoderTrainer
 from utils.setup import setup_distribute_strategy, setup_memory_growth
 from utils.logging import add_color_formater
-from dataloader.loader import load_qa_dataset
+from dataprocessor.loader import load_qa_dataset
 
 
 logging.basicConfig(level=logging.INFO)
