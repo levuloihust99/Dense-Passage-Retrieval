@@ -5,10 +5,10 @@ import os
 from typing import Text, Dict, List, Union
 import tensorflow as tf
 
-from transformers import TFDistilBertModel, BertTokenizer
 from dataprocessor.loader import load_corpus_dataset
 
 from dual_encoder.configuration import DualEncoderConfig
+from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from dual_encoder.modeling import DualEncoder
 from utils.logging import add_color_formater
 from utils.setup import setup_memory_growth, setup_distribute_strategy
@@ -22,7 +22,7 @@ logger = logging.getLogger()
 
 
 def generate_embeddings(
-    context_encoder: TFDistilBertModel,
+    context_encoder: tf.keras.Model,
     dataset: Union[tf.data.Dataset, tf.distribute.DistributedDataset],
     strategy: tf.distribute.Strategy
 ):
@@ -53,7 +53,8 @@ def generate_embeddings(
 
 def load_context_encoder(config: DualEncoderConfig):
     ckpt_path = tf.train.latest_checkpoint(config.checkpoint_path)
-    context_encoder = TFDistilBertModel.from_pretrained(config.pretrained_model_path)
+    encoder_class = ARCHITECTURE_MAPPINGS[config.model_arch]
+    context_encoder = encoder_class.from_pretrained(config.pretrained_model_path)
     dual_encoder = tf.train.Checkpoint(context_encoder=context_encoder)
     ckpt = tf.train.Checkpoint(model=dual_encoder)
     ckpt.restore(ckpt_path).expect_partial()

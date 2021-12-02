@@ -6,6 +6,7 @@ import tensorflow as tf
 class DualEncoderConfig(object):
     def __init__(self, **kwargs):
         self.model_name = 'dualencoder'
+        self.model_arch = 'distilbert'
         self.debug = False
         self.query_max_seq_length = 32
         self.context_max_seq_length = 256
@@ -54,7 +55,7 @@ class DualEncoderConfig(object):
                 "Only `epoch` or integers are supported for `save_checkpoint_freq`. Current value: {}".format(self.save_checkpoint_freq)
 
         # derivatived configurations
-        self.data_tfrecord_dir = os.path.join(self.data_dir, 'tfrecord')
+        self.data_tfrecord_dir = os.path.join(self.data_dir, 'tfrecord', 'train')
         self.checkpoint_path = os.path.join(self.checkpoint_dir, self.model_name)
         self.log_path = os.path.join(self.log_dir, self.model_name)
 

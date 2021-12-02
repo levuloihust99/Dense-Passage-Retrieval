@@ -10,9 +10,10 @@ from typing import Text, Dict, List, Any
 import numpy as np
 import tensorflow as tf
 
-from transformers import TFDistilBertModel, BertTokenizer
+from transformers import BertTokenizer
 
 from dual_encoder.configuration import DualEncoderConfig
+from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from utils.logging import add_color_formater
 from utils.setup import setup_memory_growth
 from dataprocessor.dumper import tensorize_question
@@ -34,7 +35,8 @@ def load_query_encoder(config: DualEncoderConfig):
     start_time = time.perf_counter()
 
     ckpt_path = tf.train.latest_checkpoint(config.checkpoint_path)
-    query_encoder = TFDistilBertModel.from_pretrained(config.pretrained_model_path)
+    encoder_class = ARCHITECTURE_MAPPINGS[config.model_arch]
+    query_encoder = encoder_class.from_pretrained(config.pretrained_model_path)
     dual_encoder = tf.train.Checkpoint(query_encoder=query_encoder)
     ckpt = tf.train.Checkpoint(model=dual_encoder)
     ckpt.restore(ckpt_path).expect_partial()
@@ -64,7 +66,7 @@ def create_query_dataset(
 
 def generate_query_embeddings(
     query_dataset: tf.data.Dataset,
-    query_encoder: TFDistilBertModel
+    query_encoder: tf.keras.Model
 ) -> np.ndarray:
     logger.info("Generating query embeddings...")
     start_time = time.perf_counter()
@@ -79,7 +81,7 @@ def generate_query_embeddings(
 
 def evaluate(
     qa_test_data: Dict[Text, Any],
-    query_encoder: TFDistilBertModel,
+    query_encoder: tf.keras.Model,
     indexer: DenseFlatIndexer,
     tokenizer: BertTokenizer,
     result_dir: str,

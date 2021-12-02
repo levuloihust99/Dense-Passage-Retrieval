@@ -6,12 +6,11 @@ import time
 import logging
 import tensorflow as tf
 
-from transformers import TFDistilBertModel
-
 from dual_encoder.configuration import DualEncoderConfig
 from dual_encoder.modeling import DualEncoder
 from dual_encoder.optimization import get_adamw
 from dual_encoder.trainer import DualEncoderTrainer
+from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from utils.setup import setup_distribute_strategy, setup_memory_growth
 from utils.logging import add_color_formater
 from dataprocessor.loader import load_qa_dataset
@@ -31,6 +30,9 @@ def main():
     parser = argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
     parser.add_argument("--model-name")
     parser.add_argument("--debug", type=eval)
+    parser.add_argument("--tokenizer-path")
+    parser.add_argument("--pretrained-model-path")
+    parser.add_argument("--model-arch")
     parser.add_argument("--query-max-seq-length", type=int)
     parser.add_argument("--context-max-seq-length", type=int)
     parser.add_argument("--train-batch-size", type=int)
@@ -39,6 +41,7 @@ def main():
     parser.add_argument("--logging-steps", type=int)
     parser.add_argument("--save-checkpoint-freq")
     parser.add_argument("--use-tpu", type=eval)
+    parser.add_argument("--tpu-name")
     parser.add_argument("--hparams", type=str, default='{}')
     args = parser.parse_args()
 
@@ -84,8 +87,9 @@ def main():
     with strategy.scope():
         # dual encoders
         logger.info("Instantiate dual encoder...")
-        query_encoder = TFDistilBertModel.from_pretrained(config.pretrained_model_path)
-        context_encoder = TFDistilBertModel.from_pretrained(config.pretrained_model_path)
+        encoder_class = ARCHITECTURE_MAPPINGS[config.model_arch]
+        query_encoder = encoder_class.from_pretrained(config.pretrained_model_path)
+        context_encoder = encoder_class.from_pretrained(config.pretrained_model_path)
         dual_encoder = DualEncoder(
             query_encoder=query_encoder,
             context_encoder=context_encoder

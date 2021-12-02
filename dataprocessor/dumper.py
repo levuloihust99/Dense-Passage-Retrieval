@@ -174,16 +174,23 @@ def dump_corpus(
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
     parser.add_argument("--dump-corpus", action='store_const', const=True, default=False)
     parser.add_argument("--dump-qa", action='store_const', const=True, default=False)
+    parser.add_argument("--query-max-seq-length", type=int)
+    parser.add_argument("--context-max-seq-length", type=int)
     parser.add_argument("--config-path", default=None)
     args = parser.parse_args()
 
     if args.config_path:
         config = DualEncoderConfig.from_json_file(args.config_path)
     else:
-        config = DualEncoderConfig()
+        hparams = {}
+        if hasattr(args, 'query_max_seq_length'):
+            hparams['query_max_seq_length'] = args.query_max_seq_length
+        if hasattr(args, 'context_max_seq_length'):
+            hparams['context_max_seq_length'] = args.context_max_seq_length
+        config = DualEncoderConfig(**hparams)
     tokenizer = BertTokenizer.from_pretrained(config.tokenizer_path)
 
     if args.dump_qa:
