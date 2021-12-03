@@ -7,8 +7,8 @@ import numpy as np
 import tensorflow as tf
 
 
-def load_data(data_path: Text):
-    all_data_path = os.path.join(data_path, 'train_question_answer.json')
+def load_data(data_path: Text, qa_file: Text):
+    all_data_path = os.path.join(data_path, qa_file)
     with tf.io.gfile.GFile(all_data_path, 'r') as reader:
         all_data = json.load(reader)
     return all_data
@@ -37,19 +37,21 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train-ratio", type=float, default=0.8)
     parser.add_argument("--data-path", default='data')
+    parser.add_argument("--output-file-name", default='data.json')
+    parser.add_argument("--qa-file", default="train_question_answer.json")
     args = parser.parse_args()
 
-    train_data_path = os.path.join(args.data_path, 'train', 'data.json')
+    train_data_path = os.path.join(args.data_path, 'train', args.output_file_name)
     train_dir = os.path.basename(train_data_path)
     if not tf.io.gfile.exists(train_dir):
         tf.io.gfile.makedirs(train_dir)
     
-    test_data_path = os.path.join(args.data_path, 'test', 'data.json')
+    test_data_path = os.path.join(args.data_path, 'test', args.output_file_name)
     test_dir = os.path.basename(test_data_path)
     if not tf.io.gfile.exists(test_dir):
         tf.io.gfile.makedirs(test_dir)
 
-    all_data = load_data(data_path=args.data_path)
+    all_data = load_data(data_path=args.data_path, qa_file=args.qa_file)
     train_data, test_data = train_test_split(all_data, args.train_ratio)
     with tf.io.gfile.GFile(train_data_path, 'w') as writer:
         writer.write(json.dumps(train_data, indent=4, ensure_ascii=False))

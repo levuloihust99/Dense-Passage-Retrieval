@@ -5,96 +5,20 @@ import os
 import logging
 import argparse
 from typing import Text, Dict, List, Any
-from transformers import BertTokenizer
 
 from dual_encoder.configuration import DualEncoderConfig
-
+from dual_encoder.constants import ARCHITECTURE_MAPPINGS
+from data_helpers.data_utils import (
+    load_corpus_to_dict,
+    load_corpus_to_list,
+    load_qa_data,
+    build_query_context_pairs,
+    tensorize_question,
+    tensorize_context,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-def load_corpus_to_dict(corpus_path: Text):
-    with tf.io.gfile.GFile(corpus_path, 'r') as reader:
-        corpus = json.load(reader)
-    corpus_restructured = {}
-    for doc in corpus:
-        articles_restructured = {}
-        for article in doc.get('articles'):
-            articles_restructured[article.get('article_id')] = {
-                'title': article.get('title'),
-                'text': article.get('text')
-            }
-        corpus_restructured[doc.get('law_id')] = articles_restructured
-
-    return corpus_restructured
-
-
-def load_corpus_to_list(corpus_path: Text):
-    with tf.io.gfile.GFile(corpus_path, 'r') as reader:
-        corpus = json.load(reader)
-    corpus_res = []
-    for doc in corpus:
-        for article in doc.get('articles'):
-            corpus_res.append(dict(law_id=doc.get('law_id'), **article))
-    return corpus_res
-
-
-def load_train_data(train_data_path: Text):
-    with tf.io.gfile.GFile(train_data_path, 'r') as reader:
-        train_data = json.load(reader)
-    return train_data.get('items')
-
-
-def build_query_context_pairs(corpus, train_data):
-    query_context_pairs = []
-    for record in train_data:
-        question = record.get('question')
-        relevant_articles = record.get('relevant_articles')
-        context_article = relevant_articles[0]
-        context = corpus.get(context_article.get('law_id')).get(context_article.get('article_id'))
-        query_context_pairs.append({
-            'question': question,
-            'context': context
-        })
-    return query_context_pairs
-
-
-def tensorize_question(question, tokenizer, max_seq_length):
-    tokens = tokenizer.tokenize(question)
-    if len(tokens) > max_seq_length - 2:
-        tokens = tokens[:max_seq_length - 2]
-    tokens = [tokenizer.cls_token] + tokens + [tokenizer.sep_token]
-    mask = [1] * len(tokens)
-    token_ids = tokenizer.convert_tokens_to_ids(tokens)
-    pad_length = max_seq_length - len(tokens)
-    token_ids = token_ids + [tokenizer.pad_token_id] * pad_length
-    mask = mask + [0] * pad_length
-    return {
-        'input_ids': token_ids,
-        'attention_mask': mask
-    }
-
-
-def tensorize_context(context, tokenizer, max_seq_length):
-    title = context.get('title')
-    text = context.get('text')
-    title_tokens = tokenizer.tokenize(title)
-    text_tokens = tokenizer.tokenize(text)
-    tokens = title_tokens + [tokenizer.sep_token] + text_tokens
-    if len(tokens) > max_seq_length - 2:
-        tokens = tokens[:max_seq_length - 2]
-    
-    tokens = [tokenizer.cls_token] + tokens + [tokenizer.sep_token]
-    mask = [1] * len(tokens)
-    token_ids = tokenizer.convert_tokens_to_ids(tokens)
-    pad_length = max_seq_length - len(tokens)
-    token_ids = token_ids + [tokenizer.pad_token_id] * pad_length
-    mask = mask + [0] * pad_length
-
-    return {
-        'input_ids': token_ids,
-        'attention_mask': mask
-    }
 
 
 def create_int_feature(values):
@@ -180,6 +104,11 @@ def main():
     parser.add_argument("--query-max-seq-length", type=int)
     parser.add_argument("--context-max-seq-length", type=int)
     parser.add_argument("--config-path", default=None)
+    parser.add_argument("--data-dir")
+    parser.add_argument("--architecture", default="distilbert", choices=['roberta', 'distilbert', 'bert'])
+    parser.add_argument("--tokenizer-path", default='pretrained/NlpHUST/vibert4news-base-cased')
+    parser.add_argument("--corpus-path", default='legal_corpus.json')
+    parser.add_argument("--qa-file", default='train/data.json')
     args = parser.parse_args()
 
     if args.config_path:
@@ -190,18 +119,24 @@ def main():
             hparams['query_max_seq_length'] = args.query_max_seq_length
         if hasattr(args, 'context_max_seq_length'):
             hparams['context_max_seq_length'] = args.context_max_seq_length
+        if hasattr(args, 'data_dir'):
+            hparams['data_dir'] = args.data_dir
+        if hasattr(args, 'tokenizer_path'):
+            hparams['tokenizer_path'] = args.tokenizer_path
         config = DualEncoderConfig(**hparams)
-    tokenizer = BertTokenizer.from_pretrained(config.tokenizer_path)
+    
+    tokenizer_class = ARCHITECTURE_MAPPINGS[args.architecture]['tokenizer_class']
+    tokenizer = tokenizer_class.from_pretrained(config.tokenizer_path)
 
     if args.dump_qa:
         qa_tfrecord_dir = config.data_tfrecord_dir
         if not tf.io.gfile.exists(qa_tfrecord_dir):
             tf.io.gfile.makedirs(qa_tfrecord_dir)
 
-        corpus_path = os.path.join(config.data_dir, 'legal_corpus.json')
+        corpus_path = os.path.join(config.data_dir, args.corpus_path)
         corpus = load_corpus_to_dict(corpus_path)
-        train_data_path = os.path.join(config.data_dir, 'train_question_answer.json')
-        train_data = load_train_data(train_data_path)
+        qa_data_path = os.path.join(config.data_dir, args.qa_file)
+        train_data = load_qa_data(qa_data_path)
         query_context_pairs = build_query_context_pairs(corpus, train_data)
         
         dump_qa(
@@ -212,11 +147,11 @@ def main():
             tfrecord_dir=qa_tfrecord_dir,
         )
     if args.dump_corpus:
-        corpus_tfrecord = os.path.join(config.data_dir, 'tfrecord/corpus')
+        corpus_tfrecord = os.path.join(config.data_dir, 'tfrecord' ,'corpus')
         if not tf.io.gfile.exists(corpus_tfrecord):
             tf.io.gfile.makedirs(corpus_tfrecord)
         
-        corpus_path = os.path.join(config.data_dir, 'legal_corpus.json')
+        corpus_path = os.path.join(config.data_dir, args.corpus_path)
         corpus = load_corpus_to_list(corpus_path)
 
         dump_corpus(

@@ -10,13 +10,11 @@ from typing import Text, Dict, List, Any
 import numpy as np
 import tensorflow as tf
 
-from transformers import BertTokenizer
-
 from dual_encoder.configuration import DualEncoderConfig
 from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from utils.logging import add_color_formater
 from utils.setup import setup_memory_growth
-from dataprocessor.dumper import tensorize_question
+from data_helpers.data_utils import load_corpus_to_dict, tensorize_question
 from indexing.faiss_indexer import DenseFlatIndexer
 
 
@@ -35,7 +33,7 @@ def load_query_encoder(config: DualEncoderConfig):
     start_time = time.perf_counter()
 
     ckpt_path = tf.train.latest_checkpoint(config.checkpoint_path)
-    encoder_class = ARCHITECTURE_MAPPINGS[config.model_arch]
+    encoder_class = ARCHITECTURE_MAPPINGS[config.model_arch]['model_class']
     query_encoder = encoder_class.from_pretrained(config.pretrained_model_path)
     dual_encoder = tf.train.Checkpoint(query_encoder=query_encoder)
     ckpt = tf.train.Checkpoint(model=dual_encoder)
@@ -47,7 +45,7 @@ def load_query_encoder(config: DualEncoderConfig):
 
 def create_query_dataset(
     queries: List[Text],
-    tokenizer: BertTokenizer,
+    tokenizer,
     query_max_seq_length: int,
     batch_size: int
 ):
@@ -83,7 +81,7 @@ def evaluate(
     qa_test_data: Dict[Text, Any],
     query_encoder: tf.keras.Model,
     indexer: DenseFlatIndexer,
-    tokenizer: BertTokenizer,
+    tokenizer,
     result_dir: str,
     query_max_seq_length: int,
     batch_size: int=256,
@@ -111,11 +109,18 @@ def evaluate(
                     record['text'] = meta.get('text')
                 relevant_articles.append(record)
 
-            eval_results.append({
-                'question_id': qa_test_data[batch_idx + idx].get('question_id'),
-                'question': qa_test_data[batch_idx + idx].get('question'),
-                'relevant_articles': relevant_articles
-            })
+            if debug:
+                output_record = {
+                    'question_id': qa_test_data[batch_idx + idx].get('question_id'),
+                    'question': qa_test_data[batch_idx + idx].get('question'),
+                    'relevant_articles': relevant_articles
+                }
+            else:
+                output_record = {
+                    'question_id': qa_test_data[batch_idx + idx].get('question_id'),
+                    'relevant_articles': relevant_articles
+                }
+            eval_results.append(output_record)
     
     if not tf.io.gfile.exists(result_dir):
         tf.io.gfile.makedirs(result_dir)
@@ -124,7 +129,8 @@ def evaluate(
         writer.write(json.dumps(eval_results, indent=4, ensure_ascii=False))
 
     if debug:
-        precision, recall, f2_score = calculate_metrics(eval_results, qa_test_data)
+        corpus = load_corpus_to_dict('data/legal_corpus.json')
+        precision, recall, f2_score = calculate_metrics(eval_results, qa_test_data, corpus)
         metric_file = os.path.join(result_dir, 'metrics.txt')
         with tf.io.gfile.GFile(metric_file, 'w') as writer:
             writer.write(
@@ -134,7 +140,7 @@ def evaluate(
             )
 
 
-def calculate_metrics(eval_results, ground_truth):
+def calculate_metrics(eval_results, ground_truth, corpus):
     logger.info("Calculating metrics...")
     start_time = time.perf_counter()
     assert len(eval_results) == len(ground_truth)
@@ -142,13 +148,24 @@ def calculate_metrics(eval_results, ground_truth):
     precisions = []
     recalls = []
     f2_scores = []
+    retrieval_logs = []
     for i in range(L):
-        pred_relevant_articles = set(
+        pred_relevant_articles_ids = set(
             ["{}:::{}".format(article['law_id'], article['article_id']) for article in eval_results[i].get('relevant_articles')]
         )
-        true_relevant_articles = set(
+        true_relevant_articles_ids = set(
             ["{}:::{}".format(article['law_id'], article['article_id']) for article in ground_truth[i].get('relevant_articles')]
         )
+        pred_relevant_articles = set()
+        for item in pred_relevant_articles_ids:
+            law_id, article_id = item.split(':::')
+            pred_relevant_articles.add(corpus[law_id][article_id]['text'])
+        true_relevant_articles = set()
+        for item in true_relevant_articles_ids:
+            law_id, article_id = item.split(':::')
+            true_relevant_articles.add(corpus[law_id][article_id]['text'])
+
+        retrieved = True
         true_positives = 0
         for article in pred_relevant_articles:
             if article in true_relevant_articles:
@@ -157,11 +174,27 @@ def calculate_metrics(eval_results, ground_truth):
         recall = true_positives / len(true_relevant_articles)
         if true_positives == 0:
             f2_score = 0.
+            retrieved = False
         else:
             f2_score = (5 * precision * recall) / (4 * precision + recall)
         precisions.append(precision)
         recalls.append(recall)
         f2_scores.append(f2_score)
+        assert eval_results[i].get('question_id') == ground_truth[i].get('question_id')
+        retrieval_logs.append({
+            'retrieved': retrieved,
+            'question_id': ground_truth[i]['question_id'],
+            'question': ground_truth[i]['question'],
+            'relevant_articles': [{
+                'law_id': article['law_id'],
+                'article_id': article['article_id'],
+                'title': corpus[article['law_id']][article['article_id']]['title'],
+                'text': corpus[article['law_id']][article['article_id']]['text']
+            } for article in ground_truth[i].get('relevant_articles')]
+        })
+
+    with open('test/retrieval_logs_61425.json', 'w') as writer:
+        json.dump(retrieval_logs, writer, indent=4, ensure_ascii=False)
     logger.info("Done calculating metrics in {}s".format(time.perf_counter() - start_time))
     
     return (
@@ -174,7 +207,6 @@ def calculate_metrics(eval_results, ground_truth):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config-file", required=True)
-    parser.add_argument("--corpus-path", default='data/legal_corpus.json')
     parser.add_argument("--index-path", default='indexes')
     parser.add_argument("--qa-path", default='data/test/data.json')
     parser.add_argument("--result-dir", default='results')
@@ -188,7 +220,8 @@ def main():
 
     config = DualEncoderConfig.from_json_file(args.config_file)
     qa_test_data = load_test_data(args.qa_path)
-    tokenizer = BertTokenizer.from_pretrained(config.tokenizer_path)
+    tokenizer_class = ARCHITECTURE_MAPPINGS[config.model_arch]['tokenizer_class']
+    tokenizer = tokenizer_class.from_pretrained(config.tokenizer_path)
     indexer = DenseFlatIndexer()
     indexer.deserialize(args.index_path)
     query_encoder = load_query_encoder(config)
@@ -201,7 +234,8 @@ def main():
         tokenizer=tokenizer,
         result_dir=args.result_dir,
         query_max_seq_length=config.query_max_seq_length,
-        top_docs=args.top_docs
+        top_docs=args.top_docs,
+        debug=args.debug
     )
 
 

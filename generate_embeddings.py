@@ -5,14 +5,13 @@ import os
 from typing import Text, Dict, List, Union
 import tensorflow as tf
 
-from dataprocessor.loader import load_corpus_dataset
-
+from data_helpers.loader import load_corpus_dataset
+from data_helpers.data_utils import load_corpus_to_list, tensorize_context
 from dual_encoder.configuration import DualEncoderConfig
 from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from dual_encoder.modeling import DualEncoder
 from utils.logging import add_color_formater
 from utils.setup import setup_memory_growth, setup_distribute_strategy
-from dataprocessor.dumper import load_corpus_to_list, tensorize_context
 from indexing.faiss_indexer import DenseFlatIndexer
 
 
@@ -53,7 +52,7 @@ def generate_embeddings(
 
 def load_context_encoder(config: DualEncoderConfig):
     ckpt_path = tf.train.latest_checkpoint(config.checkpoint_path)
-    encoder_class = ARCHITECTURE_MAPPINGS[config.model_arch]
+    encoder_class = ARCHITECTURE_MAPPINGS[config.model_arch]['model_class']
     context_encoder = encoder_class.from_pretrained(config.pretrained_model_path)
     dual_encoder = tf.train.Checkpoint(context_encoder=context_encoder)
     ckpt = tf.train.Checkpoint(model=dual_encoder)
@@ -65,6 +64,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config-file", required=True)
     parser.add_argument("--index-path", required=True)
+    parser.add_argument("--corpus-path", required=True)
     args = parser.parse_args()
     config = DualEncoderConfig.from_json_file(args.config_file)
     
@@ -93,7 +93,7 @@ def main():
         context_encoder = load_context_encoder(config)
     
     embeddings = generate_embeddings(context_encoder, dist_dataset, strategy)
-    corpus = load_corpus_to_list(os.path.join(config.data_dir, 'legal_corpus.json'))
+    corpus = load_corpus_to_list(os.path.join(config.data_dir, args.corpus_path))
     embeddings = embeddings[:len(corpus)]
     embeddings = [e.numpy() for e in embeddings]
 

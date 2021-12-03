@@ -13,7 +13,7 @@ from dual_encoder.trainer import DualEncoderTrainer
 from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from utils.setup import setup_distribute_strategy, setup_memory_growth
 from utils.logging import add_color_formater
-from dataprocessor.loader import load_qa_dataset
+from data_helpers.loader import load_qa_dataset
 
 
 logging.basicConfig(level=logging.INFO)
@@ -30,7 +30,6 @@ def main():
     parser = argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
     parser.add_argument("--model-name")
     parser.add_argument("--debug", type=eval)
-    parser.add_argument("--tokenizer-path")
     parser.add_argument("--pretrained-model-path")
     parser.add_argument("--model-arch")
     parser.add_argument("--query-max-seq-length", type=int)
@@ -87,7 +86,7 @@ def main():
     with strategy.scope():
         # dual encoders
         logger.info("Instantiate dual encoder...")
-        encoder_class = ARCHITECTURE_MAPPINGS[config.model_arch]
+        encoder_class = ARCHITECTURE_MAPPINGS[config.model_arch]['model_class']
         query_encoder = encoder_class.from_pretrained(config.pretrained_model_path)
         context_encoder = encoder_class.from_pretrained(config.pretrained_model_path)
         dual_encoder = DualEncoder(
