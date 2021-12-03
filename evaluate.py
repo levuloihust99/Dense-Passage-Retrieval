@@ -14,7 +14,7 @@ from dual_encoder.configuration import DualEncoderConfig
 from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from utils.logging import add_color_formater
 from utils.setup import setup_memory_growth
-from data_helpers.data_utils import load_corpus_to_dict, tensorize_question
+from data_helpers.data_utils import load_corpus_to_dict, tokenize_question
 from indexing.faiss_indexer import DenseFlatIndexer
 
 
@@ -53,7 +53,7 @@ def create_query_dataset(
     start_time = time.perf_counter()
     query_tensors = []
     for query in queries:
-        query_tensors.append(tensorize_question(query, tokenizer, query_max_seq_length))
+        query_tensors.append(tokenize_question(query, tokenizer, query_max_seq_length))
     query_tensors = {
         'input_ids': [tf.convert_to_tensor(q.get('input_ids')) for q in query_tensors],
         'attention_mask': [tf.convert_to_tensor(q.get('attention_mask')) for q in query_tensors]

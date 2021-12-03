@@ -30,7 +30,7 @@ class DualEncoderConfig(object):
         self.keep_checkpoint_max = 5
 
         # default locations
-        self.data_dir = 'data'
+        self.data_tfrecord_dir = 'data/tfrecord/train'
         self.tokenizer_path = 'pretrained/distilbert-cmc-A8-H512-L4'
         self.pretrained_model_path = 'pretrained/distilbert-cmc-A8-H512-L4'
         self.checkpoint_dir = 'checkpoints'
@@ -55,7 +55,6 @@ class DualEncoderConfig(object):
                 "Only `epoch` or integers are supported for `save_checkpoint_freq`. Current value: {}".format(self.save_checkpoint_freq)
 
         # derivatived configurations
-        self.data_tfrecord_dir = os.path.join(self.data_dir, 'tfrecord', 'train')
         self.checkpoint_path = os.path.join(self.checkpoint_dir, self.model_name)
         self.log_path = os.path.join(self.log_dir, self.model_name)
 

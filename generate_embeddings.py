@@ -5,8 +5,8 @@ import os
 from typing import Text, Dict, List, Union
 import tensorflow as tf
 
-from data_helpers.loader import load_corpus_dataset
-from data_helpers.data_utils import load_corpus_to_list, tensorize_context
+from data_helpers.tfio.loader import load_corpus_dataset
+from data_helpers.data_utils import load_corpus_to_list
 from dual_encoder.configuration import DualEncoderConfig
 from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from dual_encoder.modeling import DualEncoder
@@ -65,6 +65,7 @@ def main():
     parser.add_argument("--config-file", required=True)
     parser.add_argument("--index-path", required=True)
     parser.add_argument("--corpus-path", required=True)
+    parser.add_argument("--corpus-tfrecord-dir", required=True)
     args = parser.parse_args()
     config = DualEncoderConfig.from_json_file(args.config_file)
     
@@ -72,7 +73,10 @@ def main():
     setup_memory_growth()
     strategy = setup_distribute_strategy(use_tpu=config.use_tpu, tpu_name=config.tpu_name)
 
-    dataset, num_examples = load_corpus_dataset(config)
+    dataset, num_examples = load_corpus_dataset(
+        tfrecord_dir=args.corpus_tfrecord_dir,
+        context_max_seq_length=config.context_max_seq_length
+    )
     if num_examples % (config.eval_batch_size * strategy.num_replicas_in_sync) != 0:
         num_forwards = num_examples // (config.eval_batch_size * strategy.num_replicas_in_sync)
         num_fake_examples = (num_forwards + 1) * config.eval_batch_size * strategy.num_replicas_in_sync - num_examples
@@ -93,7 +97,7 @@ def main():
         context_encoder = load_context_encoder(config)
     
     embeddings = generate_embeddings(context_encoder, dist_dataset, strategy)
-    corpus = load_corpus_to_list(os.path.join(config.data_dir, args.corpus_path))
+    corpus = load_corpus_to_list(args.corpus_path)
     embeddings = embeddings[:len(corpus)]
     embeddings = [e.numpy() for e in embeddings]
 

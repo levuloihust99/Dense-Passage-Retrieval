@@ -13,7 +13,7 @@ from dual_encoder.trainer import DualEncoderTrainer
 from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from utils.setup import setup_distribute_strategy, setup_memory_growth
 from utils.logging import add_color_formater
-from data_helpers.loader import load_qa_dataset
+from data_helpers.tfio.loader import load_qa_dataset
 
 
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +31,7 @@ def main():
     parser.add_argument("--model-name")
     parser.add_argument("--debug", type=eval)
     parser.add_argument("--pretrained-model-path")
+    parser.add_argument("--data-tfrecord-dir")
     parser.add_argument("--model-arch")
     parser.add_argument("--query-max-seq-length", type=int)
     parser.add_argument("--context-max-seq-length", type=int)
@@ -76,7 +77,12 @@ def main():
     # create dataset
     logger.info("Creating dataset...")
     start_time = time.perf_counter()
-    dataset, num_examples = load_qa_dataset(config)
+    dataset, num_examples = load_qa_dataset(
+        tfrecord_dir=config.data_tfrecord_dir,
+        query_max_seq_length=config.query_max_seq_length,
+        context_max_seq_length=config.context_max_seq_length,
+        train_batch_size=config.train_batch_size
+    )
     dist_dataset = strategy.distribute_datasets_from_function(
         lambda _: dataset
     )

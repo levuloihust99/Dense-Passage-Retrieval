@@ -54,13 +54,15 @@ def _load_train_v2(path: Text):
                 if len(all_answers) > 0:
                     questions.append(question)
             
-            qa_pairs.append({
-                'question': questions,
-                'context': [{
-                    'title': title,
-                    'text': context
-                }]
-            })
+            if questions:
+                qa_pairs.append({
+                    'question': questions,
+                    'context': [{
+                        'title': title,
+                        'text': context
+                    }]
+                })
+
     return qa_pairs
 
 
