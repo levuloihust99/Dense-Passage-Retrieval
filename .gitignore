@@ -47,7 +47,6 @@ asr_correct_spelling/data/*
 **.pt
 **.logs
 **/cache_asr/*
-**/runs/*
 
 **/*.wav
 transcription/*
@@ -60,6 +59,7 @@ config/*_full.json
 **/models/*
 **/ngram_lm/*
 **/cache/*
+
 .vscode/
 .venv/
 /nlp/models/
@@ -71,3 +71,5 @@ pretrained/
 /indexes/
 /results/
 /vncorenlp/
+/configs/path_mapping.json
+/runs/run_*.sh

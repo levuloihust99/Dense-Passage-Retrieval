@@ -1,3 +1,5 @@
+"""Split train/test data. This module is used for data from Legal Text Retrieval competition only."""
+
 import json
 import os
 import argparse
