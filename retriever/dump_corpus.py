@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--architecture", choices=['roberta', 'distilbert', 'bert'], required=True)
     parser.add_argument("--tokenizer-path", required=True)
     parser.add_argument("--tfrecord-dir", required=True)
+    parser.add_argument("--add-law-id", type=eval, required=True)
     args = parser.parse_args()
 
     tokenizer_class = ARCHITECTURE_MAPPINGS[args.architecture]['tokenizer_class']
@@ -28,7 +29,8 @@ def main():
         corpus=corpus,
         tokenizer=tokenizer,
         context_max_seq_length=args.context_max_seq_length,
-        tfrecord_dir=args.tfrecord_dir
+        tfrecord_dir=args.tfrecord_dir,
+        add_law_id=args.add_law_id
     )
 
 

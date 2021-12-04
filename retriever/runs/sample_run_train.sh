@@ -1,8 +1,8 @@
 #!/bin/bash
 python train.py \
-    --model-name bert4newsQ64C512 \
+    --model-name bert4news_ZL_neg_FrScr \
     --pretrained-model-path pretrained/NlpHUST/vibert4news-base-cased \
-    --data-tfrecord-dir data/named_data/vibertQ64C512/tfrecord/train \
+    --data-tfrecord-dir data/named_data/bert4news_ZL_neg_FrScr/tfrecord/train \
     --model-arch bert \
     --query-max-seq-length 64 \
     --context-max-seq-length 512 \

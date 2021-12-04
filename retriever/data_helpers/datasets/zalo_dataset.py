@@ -3,6 +3,7 @@
 import os
 import json
 import time
+import copy
 from typing import List, Dict, Text, Any
 import logging
 
@@ -11,21 +12,19 @@ from data_helpers.data_utils import load_corpus_to_dict
 logger = logging.getLogger(__name__)
 
 
-def load_data(data_dir: Text, segmented=False) -> List[Dict[Text, Any]]:
+def load_data(
+    data_dir: Text,
+    qa_file: Text,
+    corpus_file: Text,
+    add_law_id=False
+) -> List[Dict[Text, Any]]:
     """Load data into a list of question, context pair."""
 
     logger.info("Load VLSP Legal Text Retrieval question-context pairs...")
     start_time = time.perf_counter()
-    if not segmented:
-        corpus_path = 'legal_corpus.json'
-        qa_path = 'train_question_answer.json'
-    else:
-        corpus_path = 'legal_corpus_segmented.json'
-        qa_path = 'train_question_answer_segmented.json'
+    qa_path = os.path.join(data_dir, qa_file)
+    corpus_path = os.path.join(data_dir, corpus_file)
     
-    corpus_path = os.path.join(data_dir, corpus_path)
-    qa_path = os.path.join(data_dir, qa_path)
-
     corpus_dict = load_corpus_to_dict(corpus_path)
     with open(qa_path, 'r') as reader:
         qa_data = json.load(reader)['items']
@@ -36,7 +35,10 @@ def load_data(data_dir: Text, segmented=False) -> List[Dict[Text, Any]]:
         relevant_articles = record.get('relevant_articles')
         contexts = []
         for article in relevant_articles:
-            context = corpus_dict[article['law_id']][article['article_id']]
+            context = copy.deepcopy(corpus_dict[article['law_id']][article['article_id']])
+            if add_law_id:
+                law_id = article['law_id']
+                context['title'] = law_id + " " + context['title']
             contexts.append(context)
         qa_pairs.append({
             'question': [question],

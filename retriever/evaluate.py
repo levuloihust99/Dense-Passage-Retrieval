@@ -210,9 +210,10 @@ def calculate_metrics(eval_results, ground_truth, corpus):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config-file", required=True)
-    parser.add_argument("--index-path", default='indexes')
-    parser.add_argument("--qa-path", default='data/test/data.json')
-    parser.add_argument("--result-dir", default='results')
+    parser.add_argument("--index-path", default='indexes', required=True)
+    parser.add_argument("--qa-path", default='data/test/data.json', required=True)
+    parser.add_argument("--result-dir", default='results', required=True)
+    parser.add_argument("--tokenizer-path", required=True)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--top-docs", type=int, default=1)
     parser.add_argument("--debug", action='store_const', const=True, default=False)
@@ -225,7 +226,7 @@ def main():
     config = DualEncoderConfig.from_json_file(args.config_file)
     qa_test_data = load_test_data(args.qa_path)
     tokenizer_class = ARCHITECTURE_MAPPINGS[config.model_arch]['tokenizer_class']
-    tokenizer = tokenizer_class.from_pretrained(config.tokenizer_path)
+    tokenizer = tokenizer_class.from_pretrained(args.tokenizer_path)
     indexer = DenseFlatIndexer()
     indexer.deserialize(args.index_path)
     query_encoder = load_query_encoder(config)

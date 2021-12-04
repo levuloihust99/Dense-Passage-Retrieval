@@ -4,4 +4,7 @@ python dump_qa.py \
     --context-max-seq-length 512 \
     --architecture bert \
     --tokenizer-path pretrained/NlpHUST/vibert4news-base-cased \
-    --tfrecord-dir data/named_data/vibertQ64C512/tfrecord/train
+    --tfrecord-dir data/named_data/bert4news_ZL_neg_FrScr/tfrecord/train \
+    --load-vlsp False \
+    --load-zalo True \
+    --load-mailong25 False

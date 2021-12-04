@@ -64,20 +64,21 @@ def dump_corpus(
     tokenizer,
     context_max_seq_length: int,
     tfrecord_dir,
-    num_examples_per_file: int = 5000
+    num_examples_per_file: int = 5000,
+    add_law_id: bool=False,
 ):
     counter = 0
     idx = 0
     example_writer = tf.io.TFRecordWriter(os.path.join(tfrecord_dir, 'corpus_{:03d}.tfrecord'.format(idx)))
     for article in corpus:
         context = {
-            'title': article.get('title'),
-            'text':  article.get('text')
+            'title': article['law_id'] + " " + article['title'] if add_law_id else article['title'],
+            'text':  article['text']
         }
         context_inputs = tokenize_context(context, tokenizer, context_max_seq_length)
         tf_example = tf.train.Example(features=tf.train.Features(feature={
-            'input_ids': create_int_feature(context_inputs.get('input_ids')),
-            'attention_mask': create_int_feature(context_inputs.get('attention_mask'))
+            'input_ids': create_int_feature(context_inputs['input_ids']),
+            'attention_mask': create_int_feature(context_inputs['attention_mask'])
         }))
 
         if counter % num_examples_per_file == 0 and counter > 0:

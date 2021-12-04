@@ -34,7 +34,7 @@ def main():
     parser.add_argument("--architecture", choices=['roberta', 'distilbert', 'bert'], required=True)
     parser.add_argument("--tokenizer-path", required=True)
     parser.add_argument("--tfrecord-dir", required=True)
-    parser.add_argument("--path-mapping", default='configs/path_mapping.json')
+    parser.add_argument("--data-config", default='configs/data_config.json')
     args = parser.parse_args()
 
     random.seed(args.random_seed)
@@ -43,15 +43,15 @@ def main():
     zalo_qa_data = []
     mailong_qa_data = []
 
-    with open(args.path_mapping, 'r') as reader:
-        path_mapping = json.load(reader)
+    with open(args.data_config, 'r') as reader:
+        data_config = json.load(reader)
 
     if args.load_vlsp:
-        vlsp_qa_data = vlsp_dataset.load_data(path_mapping['vlsp'])
+        vlsp_qa_data = vlsp_dataset.load_data(**data_config['vlsp'])
     if args.load_zalo:
-        zalo_qa_data = zalo_dataset.load_data(path_mapping['zalo'])
+        zalo_qa_data = zalo_dataset.load_data(**data_config['zalo'])
     if args.load_mailong25:
-        mailong_qa_data = mailong_dataset.load_data(path_mapping['mailong25'])
+        mailong_qa_data = mailong_dataset.load_data(**data_config['mailong25'])
 
     combined_dataset = combine([vlsp_qa_data, zalo_qa_data, mailong_qa_data])
 

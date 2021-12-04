@@ -31,7 +31,6 @@ class DualEncoderConfig(object):
 
         # default locations
         self.data_tfrecord_dir = 'data/tfrecord/train'
-        self.tokenizer_path = 'pretrained/distilbert-cmc-A8-H512-L4'
         self.pretrained_model_path = 'pretrained/distilbert-cmc-A8-H512-L4'
         self.checkpoint_dir = 'checkpoints'
         self.log_dir = 'logs'

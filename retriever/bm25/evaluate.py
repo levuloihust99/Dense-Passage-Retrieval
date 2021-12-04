@@ -26,12 +26,6 @@ def remove_stopwords(text):
     return text
 
 
-def remove_stopwords(text):
-    for word in stop_words:
-        text = re.sub(rf'\b{word}\b', '', text)
-    return text
-
-
 def init_worker_for_search():
     global bm25
     bm25 = BM25Okapi(tokenized_corpus)
@@ -76,7 +70,7 @@ def main():
     global shared_counter
     shared_counter = multiprocessing.Value('i', 0)
 
-    jobs = multiprocessing.Pool(processes=20, initializer=init_worker_for_search)
+    jobs = multiprocessing.Pool(processes=30, initializer=init_worker_for_search)
     queries = jobs.map(remove_stopwords, queries)
     queries_tokenized = [q.split(' ') for q in queries]
 

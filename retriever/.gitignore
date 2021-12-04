@@ -71,6 +71,6 @@ pretrained/
 /indexes/
 /results/
 /vncorenlp/
-/configs/path_mapping.json
+/configs/data_config.json
 /runs/run_*.sh
 /bm25/corpus_processed.json
