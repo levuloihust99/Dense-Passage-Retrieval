@@ -86,7 +86,8 @@ def evaluate(
     query_max_seq_length: int,
     batch_size: int=256,
     top_docs: int=1,
-    debug=True
+    debug=True,
+    write_out_results=False
 ) -> np.ndarray:
     queries = [q.get('question') for q in qa_test_data]
     query_dataset = create_query_dataset(queries, tokenizer, query_max_seq_length, batch_size)
@@ -122,11 +123,13 @@ def evaluate(
                 }
             eval_results.append(output_record)
     
-    if not tf.io.gfile.exists(result_dir):
-        tf.io.gfile.makedirs(result_dir)
-    result_file = os.path.join(result_dir, 'retrieval_results.json')
-    with tf.io.gfile.GFile(result_file, 'w') as writer:
-        writer.write(json.dumps(eval_results, indent=4, ensure_ascii=False))
+    if debug:
+        if not tf.io.gfile.exists(result_dir):
+            tf.io.gfile.makedirs(result_dir)
+        if write_out_results:
+            result_file = os.path.join(result_dir, 'retrieval_results.json')
+            with tf.io.gfile.GFile(result_file, 'w') as writer:
+                writer.write(json.dumps(eval_results, indent=4, ensure_ascii=False))
 
     if debug:
         corpus = load_corpus_to_dict('data/legal_corpus.json')
@@ -213,6 +216,7 @@ def main():
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--top-docs", type=int, default=1)
     parser.add_argument("--debug", action='store_const', const=True, default=False)
+    parser.add_argument("--write-out-results", action='store_const', const=True, default=False)
     args = parser.parse_args()
 
     # setup environment
@@ -235,7 +239,8 @@ def main():
         result_dir=args.result_dir,
         query_max_seq_length=config.query_max_seq_length,
         top_docs=args.top_docs,
-        debug=args.debug
+        debug=args.debug,
+        write_out_results=args.write_out_results
     )
 
 
