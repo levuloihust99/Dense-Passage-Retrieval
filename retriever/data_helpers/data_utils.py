@@ -118,3 +118,31 @@ def tokenize_qa(
         'context_input_ids': [context['input_ids'] for context in contexts_tokenized],
         'context_attention_mask': [context['attention_mask'] for context in contexts_tokenized]
     }
+
+
+def tokenize_qa_with_hardneg(
+    qa_pair: Dict[Text, Any],
+    tokenizer,
+    query_max_seq_length: int,
+    context_max_seq_length: int
+) -> Dict[Text, List]:
+    questions = qa_pair['question']
+    questions_tokenized = [tokenize_question(question, tokenizer, query_max_seq_length) \
+        for question in questions]
+
+    contexts = qa_pair['context']
+    contexts_tokenized = [tokenize_context(context, tokenizer, context_max_seq_length) \
+        for context in contexts]
+    
+    hardneg_contexts = qa_pair['hardneg_context']
+    hardneg_contexts_tokenized = [tokenize_context(hardneg_context, tokenizer, context_max_seq_length) \
+        for hardneg_context in hardneg_contexts]
+
+    return {
+        'query_input_ids': [question['input_ids'] for question in questions_tokenized],
+        'query_attention_mask': [question['attention_mask'] for question in questions_tokenized],
+        'context_input_ids': [context['input_ids'] for context in contexts_tokenized],
+        'context_attention_mask': [context['attention_mask'] for context in contexts_tokenized],
+        'hardneg_context_input_ids': [hardneg_context['input_ids'] for hardneg_context in hardneg_contexts_tokenized],
+        'hardneg_context_attention_mask': [hardneg_context['attention_mask'] for hardneg_context in hardneg_contexts_tokenized]
+    }

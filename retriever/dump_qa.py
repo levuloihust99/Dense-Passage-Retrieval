@@ -6,7 +6,7 @@ import logging
 from data_helpers.datasets import (
     vlsp_dataset, zalo_dataset, mailong_dataset
 )
-from data_helpers.tfio.dumper import dump_qa
+from data_helpers.tfio.dumper import dump_qa, dump_qa_with_hardneg
 from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from utils.logging import add_color_formater
 
@@ -58,7 +58,10 @@ def main():
     tokenizer_class = ARCHITECTURE_MAPPINGS[args.architecture]['tokenizer_class']
     tokenizer = tokenizer_class.from_pretrained(args.tokenizer_path)
 
-    dump_qa(
+    dump_func = dump_qa
+    if data_config['zalo'].get('load_hardneg', False):
+        dump_func = dump_qa_with_hardneg
+    dump_func(
         query_context_pairs=combined_dataset,
         tokenizer=tokenizer,
         query_max_seq_length=args.query_max_seq_length,

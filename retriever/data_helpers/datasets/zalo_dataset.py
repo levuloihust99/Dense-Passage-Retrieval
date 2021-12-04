@@ -4,7 +4,7 @@ import os
 import json
 import time
 import copy
-from typing import List, Dict, Text, Any
+from typing import List, Dict, Text, Any, Optional
 import logging
 
 from data_helpers.data_utils import load_corpus_to_dict
@@ -16,7 +16,12 @@ def load_data(
     data_dir: Text,
     qa_file: Text,
     corpus_file: Text,
-    add_law_id=False
+    hardneg_file: Optional[Text],
+    add_law_id=True,
+    load_hardneg=True,
+    num_hardnegs=10,
+    cached=True,
+    cached_filename="cached_hardneg_train_data.json"
 ) -> List[Dict[Text, Any]]:
     """Load data into a list of question, context pair."""
 
@@ -44,5 +49,71 @@ def load_data(
             'question': [question],
             'context': contexts
         })
+
+    if load_hardneg:
+        logger.info("Loading hard negative samples...")
+        if cached:
+            cached_file = [f for f in os.listdir(data_dir) if f.startswith('cached')]
+            if cached_file:
+                assert len(cached_file) == 1, "There are multiple cached files, which is confused."
+                cached_file_path = os.path.join(data_dir, cached_file[0])
+                with open(cached_file_path, 'r') as reader:
+                    hardneg_qa_pairs = json.load(reader)
+                qa_pairs = hardneg_qa_pairs
+            else:
+                hardneg_path = os.path.join(data_dir, hardneg_file)
+                hardneg_qa_pairs =_load_hardneg(hardneg_path, qa_pairs, corpus_dict, num_hardnegs, add_law_id)
+                qa_pairs = hardneg_qa_pairs
+            with open(os.path.join(data_dir, cached_filename), "w") as writer:
+                json.dump(qa_pairs, writer, indent=4, ensure_ascii=False)
+        else:
+            hardneg_path = os.path.join(data_dir, hardneg_file)
+            hardneg_qa_pairs =_load_hardneg(hardneg_path, qa_pairs, corpus_dict, num_hardnegs, add_law_id)
+            qa_pairs = hardneg_qa_pairs
+
     logger.info("Done loading VLSP Legal Text Retrieval question-context pairs in {}s".format(time.perf_counter() - start_time))
     return qa_pairs
+
+
+def _load_hardneg(
+    hardneg_path: Text,
+    qa_pairs: List[Dict[Text, List]],
+    corpus_dict: Dict[Text, Dict[Text, Text]],
+    num_hardnegs: int,
+    add_law_id: bool,
+):
+    with open(hardneg_path, 'r') as reader:
+        hardneg_data = json.load(reader)
+    
+    out_hardneg_data = []
+    for idx, item in enumerate(hardneg_data):
+        assert item['question'] == qa_pairs[idx]['question'][0]
+        hardneg_articles = []
+        hardneg_idx = 0
+        ground_truth_texts = set([
+            c['text'] for c in qa_pairs[idx]['context']
+        ])
+        retrieval_articles = item['relevant_articles']
+        retrieval_articles_idx = 0
+        while True:
+            hardneg_article = copy.deepcopy(retrieval_articles[retrieval_articles_idx])
+            if hardneg_article['text'] not in ground_truth_texts:
+                if add_law_id:
+                    title = hardneg_article['law_id'] + " " + hardneg_article['title']
+                else:
+                    title = hardneg_article['title']
+                hardneg_articles.append({
+                    'title': title,
+                    'text': hardneg_article['text']
+                })
+                hardneg_idx += 1
+            retrieval_articles_idx += 1
+            if hardneg_idx == num_hardnegs or retrieval_articles_idx == len(retrieval_articles):
+                break
+        
+        out_hardneg_data.append({
+            'question': copy.deepcopy(qa_pairs[idx]['question']),
+            'context': copy.deepcopy(qa_pairs[idx]['context']),
+            'hardneg_context': hardneg_articles
+        })
+    return out_hardneg_data
