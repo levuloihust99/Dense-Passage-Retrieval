@@ -2,3 +2,4 @@ tensorflow==2.4.1
 tf-models-official==2.4.0
 transformers==4.12.5
 faiss-cpu==1.7.1
+rank_bm25==0.2.1
