@@ -49,6 +49,7 @@ def main():
     parser.add_argument("--query-max-seq-length", type=int)
     parser.add_argument("--context-max-seq-length", type=int)
     parser.add_argument("--use-hardneg", type=eval)
+    parser.add_argument("--use-stratified-loss", type=eval)
     parser.add_argument("--train-batch-size", type=int)
     parser.add_argument("--num-train-steps", type=int)
     parser.add_argument("--num-train-epochs", type=int)
@@ -133,7 +134,7 @@ def main():
 
         logger.info("Creating loss calculator...")
         start_time = time.perf_counter()
-        if config.use_hardneg:
+        if config.use_hardneg and config.use_stratified_loss:
             loss_calculator = StratifiedLoss(config.train_batch_size)
         else:
             loss_calculator = InBatchLoss(config.train_batch_size)
@@ -146,6 +147,14 @@ def main():
         )
         ckpt_manager = tf.train.CheckpointManager(ckpt, config.checkpoint_path, max_to_keep=5)
         logger.info("Done creating checkpoint manager in {}s".format(time.perf_counter() - start_time))
+
+        # restore checkpoint or train from scratch
+        if ckpt_manager.latest_checkpoint:
+            ckpt.restore(ckpt_manager.latest_checkpoint).expect_partial()
+            trained_steps = optimizer.iterations.numpy()
+            logger.info("Latest checkpoint restored -- Model trained for {} steps".format(trained_steps))
+        else:
+            logger.info("Checkpoint not found. Train from scratch")
 
     # training
     train_config = copy.deepcopy(config)

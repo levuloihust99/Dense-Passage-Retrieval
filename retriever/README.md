@@ -196,6 +196,7 @@ The training script use `argparse` for parsing arguments. However, we do not pro
 |`use_tpu`|Whether to run training on TPU. Default to `False`. If `True`, you also specify value for `tpu_name`.|
 |`tpu_name`|Name of Cloud TPU. Must be specified if run training on Cloud TPU.|
 |`use_hardneg`|Whether to use hard negative samples. This will change behavior of loss calculation during training. Default to `False`|
+|`use_stratified_loss`|Whether to use stratified loss. If this parameter is set to `True`, `use_hardneg` must also be set to `True`|
 
 # <a name="gen-embs"></a> Generate embeddings
 ## <a name="gen-corpus-tfrecord"></a> Step 1: Generate tfrecord files for corpus

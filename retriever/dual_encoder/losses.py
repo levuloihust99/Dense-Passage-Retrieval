@@ -11,10 +11,13 @@ class InBatchLoss(LossCalculator):
         self.batch_size = batch_size
     
     def compute(self, query_embedding: tf.Tensor, context_embedding: tf.Tensor):
-        similarity_matrix = tf.matmul(query_embedding, context_embedding, transpose_b=True) # batch_size x batch_size
-        logits = tf.nn.log_softmax(similarity_matrix, axis=-1) # batch_size x batch_size
-        ground_truth = tf.eye(self.batch_size)
-        loss = -tf.reduce_sum(ground_truth * logits) / self.batch_size
+        similarity_matrix = tf.matmul(query_embedding, context_embedding, transpose_b=True)
+        logits = tf.nn.log_softmax(similarity_matrix, axis=-1)
+        loss = tf.gather_nd(
+            logits, tf.where(tf.eye(self.batch_size, dtype=tf.bool))
+        )
+        loss = -tf.reduce_sum(loss) / self.batch_size
+        return {"loss": loss}
 
 
 class StratifiedLoss(LossCalculator):
@@ -57,4 +60,8 @@ class StratifiedLoss(LossCalculator):
             (pos_hardneg_loss + hardneg_neg_loss) / 
             (tf.reduce_sum(pos_hardneg_weights) + tf.reduce_sum(hardneg_neg_weights))
         )
-        return total_loss
+        return {
+            "loss": total_loss,
+            "pos_hardneg_loss": pos_hardneg_loss / tf.reduce_sum(pos_hardneg_weights),
+            "hardneg_neg_loss": hardneg_neg_loss / tf.reduce_sum(hardneg_neg_weights)
+        }

@@ -8,7 +8,9 @@ import official.nlp.optimization
 from dual_encoder.configuration import DualEncoderConfig
 from dual_encoder.modeling import DualEncoder
 from dual_encoder.losses import (
-    LossCalculator
+    LossCalculator,
+    InBatchLoss,
+    StratifiedLoss
 )
 
 
@@ -43,13 +45,19 @@ class DualEncoderTrainer(object):
         for step in range(trained_steps, self.config.num_train_steps):
             features = next(data_iterator)
             per_replica_losses = self.strategy.run(self.train_step_fn, args=(features,))
-            loss = self.strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses, axis=None)
+            loss_record = {
+                k : self.strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[k], axis=None)
+                for k in per_replica_losses
+            }
 
             if (step + 1) % self.config.logging_steps == 0:
-                logger.info("Step {:d}/{}: {}".format(step + 1, self.config.num_train_steps, loss))
+                loss_report = ["{}: {}".format(k.capitalize(), v) for k, v in loss_record.items()]
+                loss_report = " -- ".join(loss_report)
+                logger.info("Step {:d}/{} --- {}".format(step + 1, self.config.num_train_steps, loss_report))
 
                 with self.summary_writer.as_default():
-                    tf.summary.scalar("loss", loss, step=step)
+                    for k, v in loss_record.items():
+                        tf.summary.scalar(k.capitalize(), v, step=step)
 
             if (step + 1) % self.config.save_checkpoint_freq == 0:
                 ckpt_save_path = self.ckpt_manager.save()
@@ -65,9 +73,12 @@ class DualEncoderTrainer(object):
                 context_attention_mask=features['context_attention_mask'],
                 training=True
             )
-            loss = self.loss_calculator.compute(query_embedding, context_embedding)
-            loss /= self.strategy.num_replicas_in_sync
+            loss_record = self.loss_calculator.compute(query_embedding, context_embedding)
+            loss = loss_record['loss'] / self.strategy.num_replicas_in_sync
 
         grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
         self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
-        return loss
+        return {
+            k : v / self.strategy.num_replicas_in_sync
+            for k, v in loss_record.items()
+        }

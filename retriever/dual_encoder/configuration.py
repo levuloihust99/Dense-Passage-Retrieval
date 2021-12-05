@@ -11,6 +11,7 @@ class DualEncoderConfig(object):
         self.query_max_seq_length = 32
         self.context_max_seq_length = 256
         self.use_hardneg = False
+        self.use_stratified_loss = False
 
         # training configurations
         self.train_batch_size = 16
@@ -48,6 +49,8 @@ class DualEncoderConfig(object):
         self.log_path = None
 
         self.update(**kwargs)
+        if self.use_hardneg is False and self.use_stratified_loss is True:
+            assert False, "You must use hard negative samples to use stratified loss."
         try:
             self.save_checkpoint_freq = int(self.save_checkpoint_freq)
         except:
