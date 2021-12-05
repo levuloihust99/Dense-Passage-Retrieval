@@ -4,10 +4,13 @@
         "segmented": false
     },
     "zalo": {
-        "data_dir": "data/named_data/phobert-base_ZL_neg_FrScr/json/train",
+        "data_dir": "data/named_data/phobert-base_ZL_hardneg_FrScr/json/train",
         "qa_file": "train_data_segmented.json",
         "corpus_file": "legal_corpus_segmented.json",
-        "add_law_id": true
+        "load_hardneg": true,
+        "hardneg_file": "top20_retrieval_results_segmented.json",
+        "add_law_id": true,
+        "num_hardnegs": 10
     },
     "mailong25": {
         "data_dir": "/home/lvloi/data/MRC/mailong25",

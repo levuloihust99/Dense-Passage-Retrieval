@@ -1,12 +1,13 @@
 #!/bin/bash
 python train.py \
-    --model-name bert4news_ZL_neg_FrScr \
-    --pretrained-model-path pretrained/NlpHUST/vibert4news-base-cased \
-    --data-tfrecord-dir data/named_data/bert4news_ZL_neg_FrScr/tfrecord/train \
-    --model-arch bert \
+    --model-name phobert-base_ZL_hardneg_FrScr \
+    --pretrained-model-path pretrained/vinai/phobert-base \
+    --data-tfrecord-dir data/named_data/phobert-base_ZL_hardneg_FrScr/tfrecord/train \
+    --model-arch roberta \
     --query-max-seq-length 64 \
-    --context-max-seq-length 512 \
-    --train-batch-size 16 \
-    --num-train-epochs 50 \
+    --context-max-seq-length 258 \
+    --train-batch-size 12 \
+    --num-train-epochs 100 \
     --logging-steps 100 \
     --save-checkpoint-freq epoch \
+    --use-hardneg True
