@@ -9,11 +9,12 @@ import tensorflow as tf
 from dual_encoder.configuration import DualEncoderConfig
 from dual_encoder.modeling import DualEncoder
 from dual_encoder.optimization import get_adamw
+from dual_encoder.losses import StratifiedLoss, InBatchLoss
 from dual_encoder.trainer import DualEncoderTrainer
 from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from utils.setup import setup_distribute_strategy, setup_memory_growth
 from utils.logging import add_color_formater
-from data_helpers.tfio.loader import load_qa_dataset
+from data_helpers.tfio.loader import load_qa_dataset, load_qa_dataset_with_hardneg
 
 
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +24,18 @@ def override_defaults(hparams, args):
     for key in args:
         hparams[key] = args[key]
     return hparams
+
+
+class DatasetSwitcher(object):
+    def __init__(self, use_hardneg: bool = False):
+        self.use_hardneg = use_hardneg
+        self.load_qa_dataset_func = (
+            load_qa_dataset_with_hardneg if use_hardneg
+            else load_qa_dataset
+        )
+
+    def load_qa_dataset(self, *args, **kwargs):
+        return self.load_qa_dataset_func(*args, **kwargs)
 
 
 def main():
@@ -35,6 +48,7 @@ def main():
     parser.add_argument("--model-arch")
     parser.add_argument("--query-max-seq-length", type=int)
     parser.add_argument("--context-max-seq-length", type=int)
+    parser.add_argument("--use-hardneg", type=eval)
     parser.add_argument("--train-batch-size", type=int)
     parser.add_argument("--num-train-steps", type=int)
     parser.add_argument("--num-train-epochs", type=int)
@@ -77,7 +91,8 @@ def main():
     # create dataset
     logger.info("Creating dataset...")
     start_time = time.perf_counter()
-    dataset, num_examples = load_qa_dataset(
+    dataset_switcher = DatasetSwitcher(use_hardneg=config.use_hardneg)
+    dataset, num_examples = dataset_switcher.load_qa_dataset(
         tfrecord_dir=config.data_tfrecord_dir,
         query_max_seq_length=config.query_max_seq_length,
         context_max_seq_length=config.context_max_seq_length,
@@ -116,6 +131,13 @@ def main():
         )
         logger.info("Done creating optimizer in {}s".format(time.perf_counter() - start_time))
 
+        logger.info("Creating loss calculator...")
+        start_time = time.perf_counter()
+        if config.use_hardneg:
+            loss_calculator = StratifiedLoss(config.train_batch_size)
+        else:
+            loss_calculator = InBatchLoss(config.train_batch_size)
+
         logger.info("Creating checkpoint manager...")
         start_time = time.perf_counter()
         ckpt = tf.train.Checkpoint(
@@ -134,6 +156,7 @@ def main():
         config=train_config,
         dual_encoder=dual_encoder,
         optimizer=optimizer,
+        loss_calculator=loss_calculator,
         dataset=dist_dataset,
         strategy=strategy,
         ckpt_manager=ckpt_manager,

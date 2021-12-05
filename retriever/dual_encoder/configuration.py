@@ -10,6 +10,7 @@ class DualEncoderConfig(object):
         self.debug = False
         self.query_max_seq_length = 32
         self.context_max_seq_length = 256
+        self.use_hardneg = False
 
         # training configurations
         self.train_batch_size = 16

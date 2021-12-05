@@ -7,6 +7,9 @@ import official.nlp.optimization
 
 from dual_encoder.configuration import DualEncoderConfig
 from dual_encoder.modeling import DualEncoder
+from dual_encoder.losses import (
+    LossCalculator
+)
 
 
 logger = logging.getLogger(__name__)
@@ -17,6 +20,7 @@ class DualEncoderTrainer(object):
         config: DualEncoderConfig,
         dual_encoder: DualEncoder,
         optimizer: tf.keras.optimizers.Optimizer,
+        loss_calculator: LossCalculator,
         dataset: Union[tf.data.Dataset, tf.distribute.DistributedDataset],
         strategy: tf.distribute.Strategy,
         ckpt_manager: tf.train.CheckpointManager,
@@ -24,6 +28,7 @@ class DualEncoderTrainer(object):
     ):
         self.dual_encoder = dual_encoder
         self.optimizer = optimizer
+        self.loss_calculator = loss_calculator
         self.dataset = dataset
         self.strategy = strategy
         self.config = config
@@ -60,12 +65,8 @@ class DualEncoderTrainer(object):
                 context_attention_mask=features['context_attention_mask'],
                 training=True
             )
-
-            batch_size, embedding_size = query_embedding.shape.as_list()
-            similarity_matrix = tf.matmul(query_embedding, context_embedding, transpose_b=True) # batch_size x batch_size
-            logits = tf.nn.log_softmax(similarity_matrix, axis=-1) # batch_size x batch_size
-            ground_truth = tf.eye(batch_size)
-            loss = -tf.reduce_sum(ground_truth * logits) / (self.strategy.num_replicas_in_sync * batch_size)
+            loss = self.loss_calculator.compute(query_embedding, context_embedding)
+            loss /= self.strategy.num_replicas_in_sync
 
         grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
         self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))

@@ -251,7 +251,8 @@ def load_qa_dataset_with_hardneg(
         num_parallel_calls=tf.data.AUTOTUNE
     )
     dataset = dataset.map(
-        lambda element: sample_with_hardneg(element)
+        sample_with_hardneg,
+        num_parallel_calls=tf.data.AUTOTUNE
     )
     dataset = dataset.map(
         lambda element: {
@@ -261,11 +262,33 @@ def load_qa_dataset_with_hardneg(
             'context_attention_mask': tf.reshape(element['context_attention_mask'], [context_max_seq_length]),
             'hardneg_context_input_ids': tf.reshape(element['hardneg_context_input_ids'], [context_max_seq_length]),
             'hardneg_context_attention_mask': tf.reshape(element['hardneg_context_attention_mask'], [context_max_seq_length])
-        }
+        },
+        num_parallel_calls=tf.data.AUTOTUNE
     )
     dataset = dataset.shuffle(buffer_size=100000)
     dataset = dataset.repeat()
     dataset = dataset.batch(batch_size=train_batch_size, drop_remainder=True)
+
+    def _combine_hardneg(element):
+        context_input_ids = element['context_input_ids']
+        context_attention_mask = element['context_attention_mask']
+        hardneg_context_input_ids = element['hardneg_context_input_ids']
+        hardneg_context_attention_mask = element['hardneg_context_attention_mask']
+
+        combined_context_input_ids = tf.concat([context_input_ids, hardneg_context_input_ids], axis=0)
+        combined_context_attention_mask = tf.concat([context_attention_mask, hardneg_context_attention_mask], axis=0)
+
+        return {
+            'query_input_ids': element['query_input_ids'],
+            'query_attention_mask': element['query_attention_mask'],
+            'context_input_ids': combined_context_input_ids,
+            'context_attention_mask': combined_context_attention_mask
+        }
+
+    dataset = dataset.map(
+        _combine_hardneg,
+        num_parallel_calls=tf.data.AUTOTUNE
+    )
     dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
     return dataset, num_examples
