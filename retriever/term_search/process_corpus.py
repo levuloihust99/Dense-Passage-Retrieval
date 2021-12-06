@@ -2,9 +2,10 @@ import json
 import argparse
 import logging
 import multiprocessing
+from functools import partial
 
 from data_helpers.data_utils import load_corpus_to_list
-from term_search.utils import remove_stopwords, add_logging_info
+from term_search.utils import remove_stopwords_wrapper, shared_counter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,12 +29,9 @@ def main():
     if stop_words[-1] == '':
         stop_words.pop()
 
-    global shared_counter
-    shared_counter = multiprocessing.Value('i', 0)
-
     jobs = multiprocessing.Pool(processes=args.num_processes)
-    remove_stopwords_wrapper = add_logging_info(shared_counter=shared_counter, logger=logger)(remove_stopwords)
-    corpus_texts_no_stopwords = jobs.map(remove_stopwords_wrapper, corpus_texts)
+    remove_stopwords = partial(remove_stopwords_wrapper, stop_words=stop_words)
+    corpus_texts_no_stopwords = jobs.map(remove_stopwords, corpus_texts)
 
     with shared_counter.get_lock():
         logger.info("Done processing {} docs".format(shared_counter.value))

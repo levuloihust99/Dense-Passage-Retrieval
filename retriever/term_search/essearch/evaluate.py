@@ -4,11 +4,13 @@ import os
 import multiprocessing
 import logging
 from typing import Text, List
+from functools import partial
 from elasticsearch import Elasticsearch
 
-from term_search.utils import remove_stopwords, add_logging_info
+from term_search.utils import remove_stopwords_wrapper, shared_counter
 from data_helpers.data_utils import load_corpus_to_dict, load_qa_data
 from utils.evaluation import calculate_metrics
+from utils.logging import add_color_formater
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,7 +28,7 @@ def es_search(queries: List[Text], index_name: Text, top_docs: int):
                 }
             }
         }
-        search_results = es.search(index_name=index_name, body=search_query)
+        search_results = es.search(index=index_name, body=search_query)
         hits = search_results['hits']['hits']
         hits = hits[:top_docs]
         hits = [hit['_source'] for hit in hits]
@@ -40,13 +42,16 @@ def main():
     parser.add_argument("--corpus-processed-path", required=True)
     parser.add_argument("--qa-path", required=True)
     parser.add_argument("--top-docs", default=20, type=int)
-    parser.add_argument("--result-dir", default='results/bm25')
+    parser.add_argument("--result-dir", default='results/essearch')
     parser.add_argument("--num-processes", default=1, type=int)
     parser.add_argument("--index-name", default="legal")
     parser.add_argument("--es-host", default='localhost')
     parser.add_argument("--es-port", default='9200')
     global args
     args = parser.parse_args()
+
+    # setup logger
+    add_color_formater(logging.root)
 
     global es
     es = Elasticsearch(HOST=args.es_host, PORT=args.es_port)
@@ -60,17 +65,14 @@ def main():
     ground_truth = load_qa_data(args.qa_path)
     queries = [qa['question'] for qa in ground_truth]
 
-    global shared_counter
-    shared_counter = multiprocessing.Value('i', 0)
-
     jobs = multiprocessing.Pool(processes=args.num_processes)
-    remove_stopwords_wrapper = add_logging_info(shared_counter=shared_counter, logger=logger)(remove_stopwords)
-    queries = jobs.map(remove_stopwords_wrapper, queries)
+    remove_stopwords = partial(remove_stopwords_wrapper, stop_words=stop_words)
+    # queries = jobs.map(remove_stopwords, queries)
 
     with shared_counter.get_lock():
         logger.info("Done {} queries".format(shared_counter.value))
 
-    retrieval_results = es_search(queries)
+    retrieval_results = es_search(queries, args.index_name, args.top_docs)
     retrieval_results = [{
         'question': ground_truth[idx]['question'],
         'question_id': ground_truth[idx]['question_id'],

@@ -20,7 +20,6 @@ from indexing.faiss_indexer import DenseFlatIndexer
 
 
 logging.basicConfig(level=logging.INFO)
-add_color_formater(logging.root)
 logger = logging.getLogger()
 
 def load_test_data(path: Text):
@@ -156,6 +155,9 @@ def main():
     parser.add_argument("--debug", action='store_const', const=True, default=False)
     parser.add_argument("--write-out-results", action='store_const', const=True, default=False)
     args = parser.parse_args()
+
+    # setup logger
+    add_color_formater(logging.root)
 
     # setup environment
     setup_memory_growth()

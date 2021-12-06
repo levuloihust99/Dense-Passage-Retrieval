@@ -3,11 +3,13 @@ import argparse
 import os
 import multiprocessing
 import logging
+from functools import partial
 
 from rank_bm25 import BM25Okapi
-from term_search.utils import remove_stopwords, add_logging_info
+from term_search.utils import remove_stopwords_wrapper, shared_counter
 from data_helpers.data_utils import load_corpus_to_dict, load_corpus_to_list, load_qa_data
-from evaluate import calculate_metrics
+from utils.evaluation import calculate_metrics
+from utils.logging import add_color_formater
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,10 +22,10 @@ def init_worker_for_search():
 
 def get_top_n(query):
     top_n_docs = bm25.get_top_n(query, corpus_raw, args.top_docs)
-    with shared_counter.get_lock():
-        shared_counter.value += 1
-        if shared_counter.value % 100 == 0:
-            logger.info("Done {} queries".format(shared_counter.value))
+    with query_shared_counter.get_lock():
+        query_shared_counter.value += 1
+        if query_shared_counter.value % 100 == 0:
+            logger.info("Done {} queries".format(query_shared_counter.value))
     return top_n_docs
 
 
@@ -38,6 +40,9 @@ def main():
     global args
     args = parser.parse_args()
 
+    # setup logger
+    add_color_formater(logging.root)
+
     global corpus_raw
     corpus_raw = load_corpus_to_list(args.corpus_raw_path)
     corpus_dict = load_corpus_to_dict(args.corpus_raw_path)
@@ -47,7 +52,7 @@ def main():
     tokenized_corpus = [doc.split(" ") for doc in corpus]
 
     global stop_words
-    with open('bm25/vietnamese-stopwords.txt', 'r') as reader:
+    with open('term_search/vietnamese-stopwords.txt', 'r') as reader:
         stop_words = reader.read().split('\n')
     if stop_words[-1] == '':
         stop_words.pop()
@@ -55,16 +60,16 @@ def main():
     ground_truth = load_qa_data(args.qa_path)
     queries = [qa['question'] for qa in ground_truth]
 
-    global shared_counter
-    shared_counter = multiprocessing.Value('i', 0)
-
+    global query_shared_counter
+    query_shared_counter = multiprocessing.Value('i', 0)
     jobs = multiprocessing.Pool(processes=args.num_processes, initializer=init_worker_for_search)
-    remove_stopwords_wrapper = add_logging_info(shared_counter=shared_counter, logger=logger)(remove_stopwords)
-    queries = jobs.map(remove_stopwords_wrapper, queries)
+    remove_stopwords = partial(remove_stopwords_wrapper, stop_words=stop_words)
+
+    queries = jobs.map(remove_stopwords, queries)
     queries_tokenized = [q.split(' ') for q in queries]
 
     retrieval_results = jobs.map(get_top_n, queries_tokenized)
-    with shared_counter.get_lock():
+    with query_shared_counter.get_lock():
         logger.info("Done {} queries".format(shared_counter.value))
 
     retrieval_results = [{
@@ -74,6 +79,9 @@ def main():
     } for idx in range(len(ground_truth))]
 
     precision, recall, f2_score = calculate_metrics(retrieval_results, ground_truth, corpus_dict)
+    
+    if not os.path.exists(args.result_dir):
+        os.makedirs(args.result_dir)
     metric_file = os.path.join(args.result_dir, 'metrics.txt')
     with open(metric_file, 'w') as writer:
         writer.write(
