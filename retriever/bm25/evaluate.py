@@ -47,6 +47,7 @@ def main():
     parser.add_argument("--qa-path", required=True)
     parser.add_argument("--top-docs", default=20, type=int)
     parser.add_argument("--result-dir", default='results/bm25')
+    parser.add_argument("--num-processes", default=1, type=int)
     global args
     args = parser.parse_args()
 
@@ -63,14 +64,14 @@ def main():
         stop_words = reader.read().split('\n')
     if stop_words[-1] == '':
         stop_words.pop()
-    
+
     ground_truth = load_qa_data(args.qa_path)
     queries = [qa['question'] for qa in ground_truth]
 
     global shared_counter
     shared_counter = multiprocessing.Value('i', 0)
 
-    jobs = multiprocessing.Pool(processes=30, initializer=init_worker_for_search)
+    jobs = multiprocessing.Pool(processes=args.num_processes, initializer=init_worker_for_search)
     queries = jobs.map(remove_stopwords, queries)
     queries_tokenized = [q.split(' ') for q in queries]
 

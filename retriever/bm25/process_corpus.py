@@ -31,6 +31,7 @@ def remove_stopwords(text):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--corpus-path", required=True)
+    parser.add_argument("--num-processes", type=int, default=1)
     args = parser.parse_args()
 
     corpus = load_corpus_to_list(args.corpus_path)
@@ -48,12 +49,12 @@ def main():
     global shared_counter
     shared_counter = multiprocessing.Value('i', 0)
 
-    jobs = multiprocessing.Pool(processes=multiprocessing.cpu_count())
+    jobs = multiprocessing.Pool(processes=args.num_processes)
     corpus_texts_no_stopwords = jobs.map(remove_stopwords, corpus_texts)
 
     with shared_counter.get_lock():
         logger.info("Done processing {} docs".format(shared_counter.value))
-    
+
     with open("bm25/corpus_processed.json", 'w') as writer:
         json.dump(corpus_texts_no_stopwords, writer, indent=4, ensure_ascii=False)
 
