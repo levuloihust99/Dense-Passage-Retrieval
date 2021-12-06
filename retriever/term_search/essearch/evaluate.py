@@ -1,43 +1,37 @@
 import json
 import argparse
 import os
-import re
 import multiprocessing
 import logging
+from typing import Text, List
+from elasticsearch import Elasticsearch
 
-from rank_bm25 import BM25, BM25Okapi
-from tensorflow.python.keras.utils.generic_utils import to_snake_case
-from data_helpers.data_utils import load_corpus_to_dict, load_corpus_to_list
-from evaluate import calculate_metrics
+from term_search.utils import remove_stopwords, add_logging_info
+from data_helpers.data_utils import load_corpus_to_dict, load_qa_data
+from utils.evaluation import calculate_metrics
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def load_qa_data(path):
-    with open(path, 'r') as reader:
-        data = json.load(reader)['items']
-    return data
-
-
-def remove_stopwords(text):
-    for word in stop_words:
-        text = re.sub(rf'\b{word}\b', '', text)
-    return text
-
-
-def init_worker_for_search():
-    global bm25
-    bm25 = BM25Okapi(tokenized_corpus)
-
-
-def get_top_n(query):
-    top_n_docs = bm25.get_top_n(query, corpus_raw, args.top_docs)
-    with shared_counter.get_lock():
-        shared_counter.value += 1
-        if shared_counter.value % 100 == 0:
-            logger.info("Done {} queries".format(shared_counter.value))
-    return top_n_docs
+def es_search(queries: List[Text], index_name: Text, top_docs: int):
+    retrieval_results = []
+    for query in queries:
+        search_query = {
+            'query': {
+                'match': {
+                    'search_text': {
+                        'query': query
+                    }
+                }
+            }
+        }
+        search_results = es.search(index_name=index_name, body=search_query)
+        hits = search_results['hits']['hits']
+        hits = hits[:top_docs]
+        hits = [hit['_source'] for hit in hits]
+        retrieval_results.append(hits)
+    return retrieval_results
 
 
 def main():
@@ -48,19 +42,17 @@ def main():
     parser.add_argument("--top-docs", default=20, type=int)
     parser.add_argument("--result-dir", default='results/bm25')
     parser.add_argument("--num-processes", default=1, type=int)
+    parser.add_argument("--index-name", default="legal")
+    parser.add_argument("--es-host", default='localhost')
+    parser.add_argument("--es-port", default='9200')
     global args
     args = parser.parse_args()
 
-    global corpus_raw
-    corpus_raw = load_corpus_to_list(args.corpus_raw_path)
+    global es
+    es = Elasticsearch(HOST=args.es_host, PORT=args.es_port)
     corpus_dict = load_corpus_to_dict(args.corpus_raw_path)
-    with open(args.corpus_processed_path) as reader:
-        corpus = json.load(reader)
-    global tokenized_corpus
-    tokenized_corpus = [doc.split(" ") for doc in corpus]
 
-    global stop_words
-    with open('bm25/vietnamese-stopwords.txt', 'r') as reader:
+    with open('term_search/vietnamese-stopwords.txt', 'r') as reader:
         stop_words = reader.read().split('\n')
     if stop_words[-1] == '':
         stop_words.pop()
@@ -71,14 +63,14 @@ def main():
     global shared_counter
     shared_counter = multiprocessing.Value('i', 0)
 
-    jobs = multiprocessing.Pool(processes=args.num_processes, initializer=init_worker_for_search)
-    queries = jobs.map(remove_stopwords, queries)
-    queries_tokenized = [q.split(' ') for q in queries]
+    jobs = multiprocessing.Pool(processes=args.num_processes)
+    remove_stopwords_wrapper = add_logging_info(shared_counter=shared_counter, logger=logger)(remove_stopwords)
+    queries = jobs.map(remove_stopwords_wrapper, queries)
 
-    retrieval_results = jobs.map(get_top_n, queries_tokenized)
     with shared_counter.get_lock():
         logger.info("Done {} queries".format(shared_counter.value))
 
+    retrieval_results = es_search(queries)
     retrieval_results = [{
         'question': ground_truth[idx]['question'],
         'question_id': ground_truth[idx]['question_id'],
@@ -86,6 +78,9 @@ def main():
     } for idx in range(len(ground_truth))]
 
     precision, recall, f2_score = calculate_metrics(retrieval_results, ground_truth, corpus_dict)
+
+    if not os.path.exists(args.result_dir):
+        os.makedirs(args.result_dir)
     metric_file = os.path.join(args.result_dir, 'metrics.txt')
     with open(metric_file, 'w') as writer:
         writer.write(

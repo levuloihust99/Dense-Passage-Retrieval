@@ -14,6 +14,7 @@ from dual_encoder.configuration import DualEncoderConfig
 from dual_encoder.constants import ARCHITECTURE_MAPPINGS
 from utils.logging import add_color_formater
 from utils.setup import setup_memory_growth
+from utils.evaluation import calculate_metrics
 from data_helpers.data_utils import load_corpus_to_dict, tokenize_question
 from indexing.faiss_indexer import DenseFlatIndexer
 
@@ -141,70 +142,6 @@ def evaluate(
                 "Recall\t\t= {}\n"
                 "F2-score\t= {}".format(precision, recall, f2_score)
             )
-
-
-def calculate_metrics(eval_results, ground_truth, corpus):
-    logger.info("Calculating metrics...")
-    start_time = time.perf_counter()
-    assert len(eval_results) == len(ground_truth)
-    L = len(eval_results)
-    precisions = []
-    recalls = []
-    f2_scores = []
-    retrieval_logs = []
-    for i in range(L):
-        pred_relevant_articles_ids = set(
-            ["{}:::{}".format(article['law_id'], article['article_id']) for article in eval_results[i].get('relevant_articles')]
-        )
-        true_relevant_articles_ids = set(
-            ["{}:::{}".format(article['law_id'], article['article_id']) for article in ground_truth[i].get('relevant_articles')]
-        )
-        pred_relevant_articles = set()
-        for item in pred_relevant_articles_ids:
-            law_id, article_id = item.split(':::')
-            pred_relevant_articles.add(corpus[law_id][article_id]['text'])
-        true_relevant_articles = set()
-        for item in true_relevant_articles_ids:
-            law_id, article_id = item.split(':::')
-            true_relevant_articles.add(corpus[law_id][article_id]['text'])
-
-        retrieved = True
-        true_positives = 0
-        for article in pred_relevant_articles:
-            if article in true_relevant_articles:
-                true_positives += 1
-        precision = true_positives / len(pred_relevant_articles)
-        recall = true_positives / len(true_relevant_articles)
-        if true_positives == 0:
-            f2_score = 0.
-            retrieved = False
-        else:
-            f2_score = (5 * precision * recall) / (4 * precision + recall)
-        precisions.append(precision)
-        recalls.append(recall)
-        f2_scores.append(f2_score)
-        assert eval_results[i].get('question_id') == ground_truth[i].get('question_id')
-        retrieval_logs.append({
-            'retrieved': retrieved,
-            'question_id': ground_truth[i]['question_id'],
-            'question': ground_truth[i]['question'],
-            'relevant_articles': [{
-                'law_id': article['law_id'],
-                'article_id': article['article_id'],
-                'title': corpus[article['law_id']][article['article_id']]['title'],
-                'text': corpus[article['law_id']][article['article_id']]['text']
-            } for article in ground_truth[i].get('relevant_articles')]
-        })
-
-    with open('test/retrieval_logs_61425.json', 'w') as writer:
-        json.dump(retrieval_logs, writer, indent=4, ensure_ascii=False)
-    logger.info("Done calculating metrics in {}s".format(time.perf_counter() - start_time))
-    
-    return (
-        float(np.array(precisions).mean()),
-        float(np.array(recalls).mean()),
-        float(np.array(f2_scores).mean())
-    )
 
 
 def main():

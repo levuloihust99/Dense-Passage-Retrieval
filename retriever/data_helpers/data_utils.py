@@ -146,3 +146,9 @@ def tokenize_qa_with_hardneg(
         'hardneg_context_input_ids': [hardneg_context['input_ids'] for hardneg_context in hardneg_contexts_tokenized],
         'hardneg_context_attention_mask': [hardneg_context['attention_mask'] for hardneg_context in hardneg_contexts_tokenized]
     }
+
+
+def load_qa_data(path):
+    with open(path, 'r') as reader:
+        data = json.load(reader)['items']
+    return data
