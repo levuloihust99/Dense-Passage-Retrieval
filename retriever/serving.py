@@ -4,6 +4,7 @@ import logging
 import time
 import argparse
 import tensorflow as tf
+from vncorenlp import VnCoreNLP
 
 from indexing.faiss_indexer import DenseFlatIndexer
 from dual_encoder.configuration import DualEncoderConfig
@@ -60,6 +61,7 @@ def after_request_func(request, response):
 def retrieve(request):
     data = request.json
     query = data['query']
+    query = ' '.join(rdrsegmenter.tokenize(query)[0])
     top_docs = data.get('top_docs', 10)
     query_tokens = tokenizer.tokenize(query)
     query_tokens = [tokenizer.cls_token] + query_tokens + [tokenizer.sep_token]
@@ -86,12 +88,13 @@ def main():
 
     setup_memory_growth()
 
-    global query_encoder, tokenizer, indexer
+    global query_encoder, tokenizer, indexer, rdrsegmenter
     indexer = DenseFlatIndexer()
     indexer.deserialize(args.index_path)
     config = DualEncoderConfig.from_json_file(args.config_file)
     query_encoder = load_query_encoder(config)
     tokenizer = ARCHITECTURE_MAPPINGS[args.architecture]['tokenizer_class'].from_pretrained(args.tokenizer_path)
+    rdrsegmenter = VnCoreNLP("vncorenlp/VnCoreNLP-1.1.1.jar", annotators="wseg", max_heap_size='-Xmx500m')
 
 
 if __name__ == '__main__':
