@@ -105,12 +105,12 @@ def evaluate(
                     'law_id': meta.get('law_id'),
                     'article_id': meta.get('article_id')
                 }
-                if debug:
+                if write_out_results:
                     record['title'] = meta.get('title')
                     record['text'] = meta.get('text')
                 relevant_articles.append(record)
 
-            if debug:
+            if write_out_results:
                 output_record = {
                     'question_id': qa_test_data[batch_idx + idx].get('question_id'),
                     'question': qa_test_data[batch_idx + idx].get('question'),
@@ -123,13 +123,12 @@ def evaluate(
                 }
             eval_results.append(output_record)
     
-    if debug:
+    if write_out_results:
         if not tf.io.gfile.exists(result_dir):
             tf.io.gfile.makedirs(result_dir)
-        if write_out_results:
-            result_file = os.path.join(result_dir, 'retrieval_results.json')
-            with tf.io.gfile.GFile(result_file, 'w') as writer:
-                writer.write(json.dumps(eval_results, indent=4, ensure_ascii=False))
+        result_file = os.path.join(result_dir, 'retrieval_results.json')
+        with tf.io.gfile.GFile(result_file, 'w') as writer:
+            writer.write(json.dumps(eval_results, indent=4, ensure_ascii=False))
 
     if debug:
         corpus = load_corpus_to_dict('data/legal_corpus.json')
