@@ -175,7 +175,7 @@ def deserialize_qa_pairs_with_hardneg(
         'context_input_ids': context_input_ids,
         'context_attention_mask': context_attention_mask,
         'hardneg_context_input_ids': hardneg_context_input_ids,
-        'hardneg_context_attention_mask': hardneg_context_input_ids
+        'hardneg_context_attention_mask': hardneg_context_attention_mask
     }
 
 
