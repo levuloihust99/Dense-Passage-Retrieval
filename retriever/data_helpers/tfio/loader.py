@@ -202,24 +202,13 @@ def sample_with_hardneg(element):
     context_input_ids = composite_context[:, 0]
     context_attention_mask = composite_context[:, 1]
 
-    # hard negative context portion
-    hardneg_context_input_ids = element['hardneg_context_input_ids']
-    hardneg_context_attention_mask = element['hardneg_context_attention_mask']
-
-    composite_hardneg_context = tf.stack([hardneg_context_input_ids, hardneg_context_attention_mask], axis=-1)
-    composite_hardneg_context = tf.random.shuffle(composite_hardneg_context)
-    composite_hardneg_context = composite_hardneg_context[0]
-
-    hardneg_context_input_ids = composite_hardneg_context[:, 0]
-    hardneg_context_attention_mask = composite_hardneg_context[:, 1]
-
     return {
         'query_input_ids': query_input_ids,
         'query_attention_mask': query_attention_mask,
         'context_input_ids': context_input_ids,
         'context_attention_mask': context_attention_mask,
-        'hardneg_context_input_ids': hardneg_context_input_ids,
-        'hardneg_context_attention_mask': hardneg_context_attention_mask
+        'hardneg_context_input_ids': element['hardneg_context_input_ids'],
+        'hardneg_context_attention_mask': element['hardneg_context_attention_mask']
     }
 
 
@@ -260,8 +249,8 @@ def load_qa_dataset_with_hardneg(
             'query_attention_mask': tf.reshape(element['query_attention_mask'], [query_max_seq_length]),
             'context_input_ids': tf.reshape(element['context_input_ids'], [context_max_seq_length]),
             'context_attention_mask': tf.reshape(element['context_attention_mask'], [context_max_seq_length]),
-            'hardneg_context_input_ids': tf.reshape(element['hardneg_context_input_ids'], [context_max_seq_length]),
-            'hardneg_context_attention_mask': tf.reshape(element['hardneg_context_attention_mask'], [context_max_seq_length])
+            'hardneg_context_input_ids': tf.reshape(element['hardneg_context_input_ids'], [-1, context_max_seq_length]),
+            'hardneg_context_attention_mask': tf.reshape(element['hardneg_context_attention_mask'], [-1, context_max_seq_length])
         },
         num_parallel_calls=tf.data.AUTOTUNE
     )
@@ -272,8 +261,8 @@ def load_qa_dataset_with_hardneg(
     def _combine_hardneg(element):
         context_input_ids = element['context_input_ids']
         context_attention_mask = element['context_attention_mask']
-        hardneg_context_input_ids = element['hardneg_context_input_ids']
-        hardneg_context_attention_mask = element['hardneg_context_attention_mask']
+        hardneg_context_input_ids = tf.reshape(element['hardneg_context_input_ids'], [-1, context_max_seq_length])
+        hardneg_context_attention_mask = tf.reshape(element['hardneg_context_attention_mask'], [-1, context_max_seq_length])
 
         combined_context_input_ids = tf.concat([context_input_ids, hardneg_context_input_ids], axis=0)
         combined_context_attention_mask = tf.concat([context_attention_mask, hardneg_context_attention_mask], axis=0)
