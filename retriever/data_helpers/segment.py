@@ -20,7 +20,10 @@ def segment_recursive(data):
             stack.extend(list(zip([node] * len(node), node.keys(), node.values())))
         elif isinstance(node, str):
             if index in segment_keys:
-                parent_node[index] = ' '.join(rdrsegmenter.tokenize(node))
+                if node:
+                    parent_node[index] = ' '.join(rdrsegmenter.tokenize(node)[0])
+                else:
+                    parent_node[index] = node
         else:
             continue
     return data
