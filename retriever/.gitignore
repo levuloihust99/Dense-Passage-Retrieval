@@ -72,5 +72,5 @@ pretrained/
 /results/
 /vncorenlp/
 /configs/data_config.json
-/runs/run_*.sh
+**/run_*.sh
 /term_search/corpus_processed.json
