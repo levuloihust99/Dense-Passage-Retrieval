@@ -11,6 +11,7 @@ class DualEncoderConfig(CommonConfig):
         self.query_max_seq_length = 64
         self.use_hardneg = True
         self.use_stratified_loss = True
+        self.sim_score = 'cosine'
 
         # data
         self.tfrecord_dir = 'data/tfrecord/dual_encoder/train'

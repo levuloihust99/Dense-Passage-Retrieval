@@ -9,7 +9,10 @@ import tensorflow as tf
 from libs.nn.configuration.dual_encoder import DualEncoderConfig
 from libs.nn.modeling.dual_encoder import DualEncoder
 from libs.nn.optimization import get_adamw
-from libs.nn.losses.dual_encoder import StratifiedLoss, InBatchLoss
+from libs.nn.losses.dual_encoder import (
+    InBatchCosineLoss, InBatchDotProductLoss, 
+    StratifiedCosineLoss, StratifiedDotProductLoss
+)
 from libs.nn.trainer.dual_encoder import DualEncoderTrainer
 from libs.nn.constants import ARCHITECTURE_MAPPINGS
 from libs.utils.setup import setup_distribute_strategy, setup_memory_growth
@@ -49,6 +52,7 @@ def main():
     parser.add_argument("--query-max-seq-length", type=int)
     parser.add_argument("--use-hardneg", type=eval)
     parser.add_argument("--use-stratified-loss", type=eval)
+    parser.add_argument("--sim-score", choices=['cosine', 'dot_product'])
     # data
     parser.add_argument("--tfrecord-dir")
     # training params
@@ -175,9 +179,15 @@ def main():
         logger.info("Creating loss calculator...")
         start_time = time.perf_counter()
         if config.use_hardneg and config.use_stratified_loss:
-            loss_calculator = StratifiedLoss(config.train_batch_size)
+            if config.sim_score == 'cosine':
+                loss_calculator = StratifiedCosineLoss()
+            else:
+                loss_calculator = StratifiedDotProductLoss()
         else:
-            loss_calculator = InBatchLoss(config.train_batch_size)
+            if config.sim_score == 'cosine':
+                loss_calculator = InBatchCosineLoss()
+            else:
+                loss_calculator = InBatchDotProductLoss()
 
         logger.info("Creating checkpoint manager...")
         start_time = time.perf_counter()
