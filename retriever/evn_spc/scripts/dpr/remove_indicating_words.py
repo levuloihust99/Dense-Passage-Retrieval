@@ -6,11 +6,12 @@ import re
 import json
 import argparse
 
-regex = re.compile((r"(\b[Pp][Hh][Ụụ] *[Ll][Ụụ][Cc](?: *)?(?:[0-9][A-Za-z]*)?(?: *)?(?:[:).])?)|"
-         r"(\b[Cc][Hh][Ưư][Ơơ][Nn][Gg](?: *)?(?:[0-9ABCDEIVXivxabcde]+)?(?: *)?(?:[:).])?)|"
-         r"(\b[Mm][Ụụ][Cc](?: *)?(?:[0-9IVXivxABCDEabcde]+)?(?: *)?(?:[:).])?)|"
-         r"(\b[Đđ][Ii][Ềề][Uu](?: *)?(?:[0-9]+)?(?: *)?(?:[:).])?)|(\b(?:[0-9a-z]+) ?[).])"
-))
+regex = re.compile((r"([Pp][Hh][Ụụ] *[Ll][Ụụ][Cc] *[0-9][A-Za-z]*(?: *)?(?:[:).])?)|"
+                    r"([Cc][Hh][Ưư][Ơơ][Nn][Gg](?: *)?[0-9ABCDEIVXivxabcde]+(?: *)?(?:[:).])?)|"
+                    r"([Mm][Ụụ][Cc](?: *)?[0-9IVXivxABCDEabcde]+(?: *)?(?:[:).])?)|"
+                    r"([Đđ][Ii][Ềề][Uu](?: *)?[0-9]+(?: *)?(?:[:).])?)|"
+                    r"(\b(?:[0-9]+|[a-zđI]) ?[).])(?!\d)|^(\d+\.)+\d?(?=\s)"
+                ), flags=re.MULTILINE)
 
 
 def main():
