@@ -12,3 +12,6 @@
 - Remove heading-indicating words like "Chương", "Mục", "Điều", "I.", "1.", "a.", "a)"
 - Lowercase
 - Output: `evn_spc_question_answer_lowercase_no_indicatingwords.json`
+### Step 5. segment.py
+- Perform RDR word segmentation
+- Output: `evn_spc_question_answer_segmented.json`

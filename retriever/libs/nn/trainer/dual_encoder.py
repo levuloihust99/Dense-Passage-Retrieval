@@ -9,8 +9,6 @@ from libs.nn.configuration.dual_encoder import DualEncoderConfig
 from libs.nn.modeling.dual_encoder import DualEncoder
 from libs.nn.losses.dual_encoder import (
     LossCalculator,
-    InBatchLoss,
-    StratifiedLoss
 )
 
 

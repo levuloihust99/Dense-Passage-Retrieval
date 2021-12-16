@@ -4,7 +4,7 @@ import argparse
 import logging
 
 from libs.data_helpers.datasets import (
-    vlsp_dataset, zalo_dataset, mailong_dataset
+    vlsp_dataset, zalo_dataset, mailong_dataset, evnspc_dataset
 )
 from libs.data_helpers.tfio.dual_encoder.dumper import dump_qa, dump_qa_with_hardneg
 from libs.nn.constants import ARCHITECTURE_MAPPINGS
@@ -29,6 +29,7 @@ def main():
     parser.add_argument("--load-vlsp", type=eval, default=True)
     parser.add_argument("--load-zalo", type=eval, default=True)
     parser.add_argument("--load-mailong25", type=eval, default=True)
+    parser.add_argument("--load-evn-spc", type=eval, default=True)
     parser.add_argument("--query-max-seq-length", type=int, required=True)
     parser.add_argument("--context-max-seq-length", type=int, required=True)
     parser.add_argument("--architecture", choices=['roberta', 'distilbert', 'bert'], required=True)
@@ -42,6 +43,7 @@ def main():
     vlsp_qa_data = []
     zalo_qa_data = []
     mailong_qa_data = []
+    evn_spc_qa_data = []
 
     with open(args.data_config, 'r') as reader:
         data_config = json.load(reader)
@@ -52,8 +54,10 @@ def main():
         zalo_qa_data = zalo_dataset.load_data(**data_config['zalo'])
     if args.load_mailong25:
         mailong_qa_data = mailong_dataset.load_data(**data_config['mailong25'])
+    if args.load_evn_spc:
+        evn_spc_qa_data = evnspc_dataset.load_data(**data_config['evn_spc'])
 
-    combined_dataset = combine([vlsp_qa_data, zalo_qa_data, mailong_qa_data])
+    combined_dataset = combine([vlsp_qa_data, zalo_qa_data, mailong_qa_data, evn_spc_qa_data])
 
     tokenizer_class = ARCHITECTURE_MAPPINGS[args.architecture]['tokenizer_class']
     tokenizer = tokenizer_class.from_pretrained(args.tokenizer_path)

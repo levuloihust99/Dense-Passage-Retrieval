@@ -16,12 +16,13 @@ def load_data(
     data_dir: Text,
     qa_file: Text,
     corpus_file: Text,
-    hardneg_file: Optional[Text],
+    hardneg_file: Optional[Text]=None,
     add_law_id=True,
     load_hardneg=True,
     num_hardnegs=10,
     cached=True,
-    cached_filename="cached_hardneg_train_data.json"
+    cached_filename="cached_hardneg_train_data.json",
+    lowercase_and_remove_indicating_words=False
 ) -> List[Dict[Text, Any]]:
     """Load data into a list of question, context pair."""
 
@@ -71,6 +72,8 @@ def load_data(
             hardneg_qa_pairs =_load_hardneg(hardneg_path, qa_pairs, corpus_dict, num_hardnegs, add_law_id)
             qa_pairs = hardneg_qa_pairs
 
+    if lowercase_and_remove_indicating_words:
+        qa_pairs = _remove_indicating_words(qa_pairs)
     logger.info("Done loading VLSP Legal Text Retrieval question-context pairs in {}s".format(time.perf_counter() - start_time))
     return qa_pairs
 
@@ -117,3 +120,27 @@ def _load_hardneg(
             'hardneg_context': hardneg_articles
         })
     return out_hardneg_data
+
+
+def _remove_indicating_words(qa_pairs):
+    output_qa_pairs = copy.deepcopy(qa_pairs)
+    import re
+    regex = re.compile((r"(\b[Pp][Hh][Ụụ] *[Ll][Ụụ][Cc](?: *)?(?:[0-9][A-Za-z]*)?(?: *)?(?:[:).])?)|"
+                        r"(\b[Cc][Hh][Ưư][Ơơ][Nn][Gg](?: *)?[0-9IVX]+?(?: *)?(?:[:).])?)|"
+                        r"(\b[Mm][Ụụ][Cc](?: *)?[0-9IVXabc]+(?: *)?(?:[:).])?)|"
+                        r"(\b[Đđ][Ii][Ềề][Uu](?: *)?[0-9]+(?: *)?(?:[:).])?)|(\b[0-9a-z] ?[).])"
+                    ))
+    for doc in output_qa_pairs:
+        doc['question'] = [q.lower() for q in doc['question']]
+        contexts = doc['context']
+        for context in contexts:
+            context['title'] = regex.sub(" ", context['title']).lower().strip()
+            context['text'] = regex.sub(" ", context['text']).lower().strip()
+        
+        hardneg_contexts = doc.get('hardneg_context', None)
+        if hardneg_contexts:
+            for context in hardneg_contexts:
+                context['title'] = regex.sub(" ", context['title']).lower().strip()
+                context['text'] = regex.sub(" ", context['text']).lower().strip()
+        
+    return output_qa_pairs

@@ -74,3 +74,4 @@ pretrained/
 /configs/data_config.json
 **/run_*.sh
 **/corpus_processed.json
+**/indexes/
