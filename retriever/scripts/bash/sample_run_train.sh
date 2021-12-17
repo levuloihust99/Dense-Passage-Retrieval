@@ -1,14 +1,15 @@
 #!/bin/bash
 python -m scripts.python.dual_encoder.train \
-    --model-name phobert_ZL_HN7_B8_NonLID_02 \
+    --model-name phobert_ZL-EVN_B16_NonLID \
     --pretrained-model-path pretrained/vinai/phobert-base \
-    --tfrecord-dir data/named_data/dual_encoder/phobert_ZL_HN7_NonLID_02/tfrecord/train \
+    --tfrecord-dir data/named_data/dual_encoder/phobert_ZL-EVN_NonLID/tfrecord/train \
     --model-arch roberta \
+    --sim-score dot_product \
     --query-max-seq-length 64 \
     --context-max-seq-length 256 \
-    --train-batch-size 8 \
+    --train-batch-size 16 \
     --num-train-epochs 50 \
     --logging-steps 100 \
     --save-checkpoint-freq epoch \
-    --use-hardneg True \
-    --use-stratified-loss True
+    --use-hardneg False \
+    --use-stratified-loss False

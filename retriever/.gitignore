@@ -75,3 +75,4 @@ pretrained/
 **/run_*.sh
 **/corpus_processed.json
 **/indexes/
+data*/
