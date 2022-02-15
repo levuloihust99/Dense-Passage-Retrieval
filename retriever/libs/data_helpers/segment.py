@@ -2,11 +2,10 @@ import json
 import logging
 import requests
 
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-def segment_recursive(data, segment_host, segment_keys={'question', 'context', 'title', 'text'}):
+def segment_recursive(data, segment_host, segment_keys=None):
     counter = 0
     stack = [(None, -1, data)]  # parent, idx, child: parent[idx] = child
     while stack:
@@ -17,7 +16,7 @@ def segment_recursive(data, segment_host, segment_keys={'question', 'context', '
             stack.extend(
                 list(zip([node] * len(node), node.keys(), node.values())))
         elif isinstance(node, str):
-            if index in segment_keys:
+            if segment_keys is None or index in segment_keys:
                 if node:
                     headers = {'Content-Type': 'application/json'}
                     payload = {'sentence': node}

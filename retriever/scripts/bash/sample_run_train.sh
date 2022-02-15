@@ -1,8 +1,8 @@
 #!/bin/bash
 python -m scripts.python.dual_encoder.train \
-    --model-name phobert_ZL-EVN_B16_NonLID \
+    --model-name phobert_ZL-EVN_B16_NonLID_Dat02 \
     --pretrained-model-path pretrained/vinai/phobert-base \
-    --tfrecord-dir data/named_data/dual_encoder/phobert_ZL-EVN_NonLID/tfrecord/train \
+    --tfrecord-dir data/named_data/dual_encoder/phobert_ZL-EVN_NonLID_Dat02/tfrecord/train \
     --model-arch roberta \
     --sim-score dot_product \
     --query-max-seq-length 64 \

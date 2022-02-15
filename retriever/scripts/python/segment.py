@@ -13,14 +13,14 @@ def main():
     parser.add_argument("--segmenter-path",
                         default="vncorenlp/VnCoreNLP-1.1.1.jar")
     parser.add_argument(
-        "--segment-keys", default="question,context,text,title")
+        "--segment-keys", default=None)
     parser.add_argument("--debug", action='store_const',
                         const=True, default=False)
     parser.add_argument("--segment-host", required=True)
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(level=log_level)
+    logging.basicConfig(level=logging.INFO)
     add_color_formater(logging.root)
     logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def main():
     with open(args.input_file, 'r') as reader:
         data = json.load(reader)
     logger.info("Instantiating RDR segmenter...")
-    segment_keys = set(args.segment_keys.split(','))
+    segment_keys = set(args.segment_keys.split(',')) if args.segment_keys else args.segment_keys
 
     logger.info("Segmenting data...")
     data = segment_recursive(data, args.segment_host, segment_keys)

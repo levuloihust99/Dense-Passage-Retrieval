@@ -4,5 +4,5 @@ python -m scripts.python.dual_encoder.dump_corpus \
     --context-max-seq-length 256 \
     --architecture roberta \
     --tokenizer-path pretrained/vinai/phobert-base \
-    --tfrecord-dir data/named_data/dual_encoder/phobert_ZL_HN7_NonLID_02/tfrecord/corpus \
+    --tfrecord-dir data/named_data/dual_encoder/phobert_ZL-EVN_NonLID_Dat02/tfrecord/corpus \
     --add-law-id False
