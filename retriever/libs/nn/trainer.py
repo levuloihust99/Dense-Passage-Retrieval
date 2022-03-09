@@ -5,11 +5,9 @@ from typing import Union
 from official import nlp
 import official.nlp.optimization
 
-from libs.nn.configuration.dual_encoder import DualEncoderConfig
-from libs.nn.modeling.dual_encoder import DualEncoder
-from libs.nn.losses.dual_encoder import (
-    LossCalculator,
-)
+from libs.nn.configuration import DualEncoderConfig
+from libs.nn.modeling import DualEncoder
+from libs.nn.losses import LossCalculator
 
 
 logger = logging.getLogger(__name__)

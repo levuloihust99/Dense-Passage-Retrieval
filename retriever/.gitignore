@@ -76,3 +76,4 @@ pretrained/
 **/corpus_processed.json
 **/indexes/
 data*/
+interactive_script.ipynb

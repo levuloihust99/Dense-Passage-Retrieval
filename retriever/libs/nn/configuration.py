@@ -1,5 +1,30 @@
 import os
-from .common import CommonConfig
+import json
+import logging
+import tensorflow as tf
+
+logger = logging.getLogger(__name__)
+
+
+class CommonConfig(object):
+    def override_defaults(self, **kwargs):
+        for k, v in kwargs.items():
+            if k not in self.__dict__:
+                logger.warn("Unknown hparam " + k)
+            self.__dict__[k] = v
+
+    def to_json_string(self):
+        return json.dumps(self.__dict__, indent=4)
+
+    @classmethod
+    def from_json(cls, json_obj):
+        return cls(**json_obj)
+
+    @classmethod
+    def from_json_file(cls, json_file):
+        with tf.io.gfile.GFile(json_file, 'r') as reader:
+            json_obj = json.load(reader)
+        return cls.from_json(json_obj)
 
 
 class DualEncoderConfig(CommonConfig):
@@ -24,7 +49,7 @@ class DualEncoderConfig(CommonConfig):
         self.num_train_epochs = None
 
         # optimization
-        self.lr_decay_power = 1.0 # Linear weight decay by default
+        self.lr_decay_power = 1.0  # Linear weight decay by default
         self.weight_decay_rate = 0.01
         self.num_warmup_steps = 1000
         self.warmup_proportions = 0.1
@@ -44,7 +69,8 @@ class DualEncoderConfig(CommonConfig):
         self.tpu_zone = None
         self.gcp_project = None
 
-        model_name_specific_params = {'checkpoint_dir', 'tensorboard_dir', 'log_file', 'config_file'}
+        model_name_specific_params = {
+            'checkpoint_dir', 'tensorboard_dir', 'log_file', 'config_file'}
         model_name_specific_kwargs = {}
         for param in model_name_specific_params:
             if param in kwargs:
@@ -57,10 +83,12 @@ class DualEncoderConfig(CommonConfig):
             self.save_checkpoint_freq = int(self.save_checkpoint_freq)
         except:
             assert self.save_checkpoint_freq == 'epoch', \
-                "Only `epoch` or integers are supported for `save_checkpoint_freq`. Current value: {}".format(self.save_checkpoint_freq)
+                "Only `epoch` or integers are supported for `save_checkpoint_freq`. Current value: {}".format(
+                    self.save_checkpoint_freq)
 
         # model_name-specific params
-        self.checkpoint_dir = os.path.join('checkpoints/dual_encoder', self.model_name)
+        self.checkpoint_dir = os.path.join(
+            'checkpoints/dual_encoder', self.model_name)
         log_dir = os.path.join('logs/dual_encoder', self.model_name)
         self.tensorboard_dir = os.path.join(log_dir, 'tensorboard')
         self.log_file = os.path.join(log_dir, 'track.log')
