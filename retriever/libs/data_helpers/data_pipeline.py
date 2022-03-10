@@ -2,6 +2,7 @@ import json
 import glob
 import os
 from typing import Text, List, Dict, Tuple
+from tqdm import tqdm
 import tensorflow as tf
 
 
@@ -27,6 +28,7 @@ class PosPipeline(Pipeline):
         self.dataset_size = -1
 
         self.feature_description = {
+            "sample_id": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
             "question/input_ids": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
             "question/attention_mask": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
             "positive_context/input_ids": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
@@ -46,6 +48,7 @@ class PosPipeline(Pipeline):
         positive_contexts_attention_mask = tf.io.parse_tensor(
             item["positive_context/attention_mask"], out_type=tf.int32)
         return {
+            "sample_id": item["sample_id"],
             "question/input_ids": tf.reshape(
                 questions_input_ids, [-1, self.max_query_length]),
             "question/attention_mask": tf.reshape(
@@ -72,6 +75,7 @@ class PosPipeline(Pipeline):
         positive_context_input_ids, positive_context_attention_mask = PosPipeline.sample_attribute(
             item["positive_context/input_ids"], item["positive_context/attention_mask"])
         return {
+            "sample_id": item["sample_id"],
             "question/input_ids": question_input_ids,
             "question/attention_mask": question_attention_mask,
             "positive_context/input_ids": positive_context_input_ids,
@@ -80,12 +84,14 @@ class PosPipeline(Pipeline):
 
     def build_contrastive_sample(self, item):
         grouped_data = {
-            "question/input_ids": item["question/input_ids"][self.forward_batch_size],
+            "sample_id": item["sample_id"][:self.forward_batch_size],
+            "question/input_ids": item["question/input_ids"][:self.forward_batch_size],
             "question/attention_mask": item["question/attention_mask"][:self.forward_batch_size],
             "positive_context/input_ids": item["positive_context/input_ids"][:self.forward_batch_size],
             "positive_context/attention_mask": item["positive_context/attention_mask"][:self.forward_batch_size]
         }
         negatives_sampled = {
+            "sample_id": item["sample_id"][self.forward_batch_size:],
             "negative_context/input_ids": item["positive_context/input_ids"][self.forward_batch_size:],
             "negative_context/attention_mask": item["positive_context/attention_mask"][self.forward_batch_size:]
         }
@@ -129,6 +135,7 @@ class PosHardPipeline(Pipeline):
         max_context_length: int,
         forward_batch_size: int,
         contrastive_size: int,
+        limit_hardnegs: int,
         data_source: Text
     ):
         self.max_query_length = max_query_length
@@ -136,8 +143,10 @@ class PosHardPipeline(Pipeline):
         self.forward_batch_size = forward_batch_size
         self.contrastive_size = contrastive_size
         self.data_source = data_source
+        self.limit_hardnegs = limit_hardnegs
 
         self.feature_description = {
+            "sample_id": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
             "question/input_ids": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
             "question/attention_mask": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
             "positive_context/input_ids": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
@@ -165,6 +174,7 @@ class PosHardPipeline(Pipeline):
         hardneg_contexts_attention_mask = tf.io.parse_tensor(
             item["hardneg_context/attention_mask"], out_type=tf.int32)
         return {
+            "sample_id": item["sample_id"],
             "question/input_ids": tf.reshape(
                 questions_input_ids, [-1, self.max_query_length]),
             "question/attention_mask": tf.reshape(
@@ -181,15 +191,6 @@ class PosHardPipeline(Pipeline):
             "num_hardneg": item["num_hardneg"]
         }
     
-    @staticmethod
-    def sample_attribute(input_ids, attention_mask):
-        compact = tf.stack([input_ids, attention_mask], axis=-1)
-        shuffled = tf.random.shuffle(compact)
-        compact_sampled = shuffled[0]
-        input_ids_sampled = compact_sampled[:, 0]
-        attention_mask_sampled = compact_sampled[:, 1]
-        return input_ids_sampled, attention_mask_sampled
-
     def sample_and_pad(self, item):
         question_input_ids, question_attention_mask = PosPipeline.sample_attribute(
             item["question/input_ids"], item["question/attention_mask"])
@@ -203,6 +204,8 @@ class PosHardPipeline(Pipeline):
                 [hardneg_context_input_ids, hardneg_context_attention_mask],
                 axis=-1
             )
+            if self.limit_hardnegs > 0:
+                hardneg_context_compact = hardneg_context_compact[:self.limit_hardnegs]
             hardneg_context_compact_shuffled = tf.random.shuffle(hardneg_context_compact)
             hardneg_context_input_ids_sampled = hardneg_context_compact_shuffled[:self.contrastive_size, :, 0]
             hardneg_context_attention_mask_sampled = hardneg_context_compact_shuffled[:self.contrastive_size, :, 1]
@@ -258,6 +261,7 @@ class HardPipeline(Pipeline):
         max_context_length: int,
         forward_batch_size: int,
         contrastive_size: int,
+        limit_hardnegs: int,
         hard_data_source: Text,
         nonhard_data_source: Text,
         max_samplings: int = 100
@@ -266,10 +270,12 @@ class HardPipeline(Pipeline):
         self.max_context_length = max_context_length
         self.forward_batch_size = forward_batch_size
         self.contrastive_size = contrastive_size
+        self.limit_hardnegs = limit_hardnegs
         self.hard_data_source = hard_data_source
         self.nonhard_data_source = nonhard_data_source
 
         self.hard_feature_description = {
+            "sample_id": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
             "question/input_ids": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
             "question/attention_mask": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
             "positive_context/input_ids": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
@@ -279,6 +285,7 @@ class HardPipeline(Pipeline):
         }
 
         self.nonhard_feature_description = {
+            "sample_id": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
             "negative_context/input_ids": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
             "negative_context/attention_mask": tf.io.FixedLenFeature(shape=[], dtype=tf.string)
         }
@@ -306,6 +313,7 @@ class HardPipeline(Pipeline):
         hardneg_contexts_attention_mask = tf.io.parse_tensor(
             item["hardneg_context/attention_mask"], out_type=tf.int32)
         return {
+            "sample_id": tf.cast(item["sample_id"], dtype=tf.int32),
             "question/input_ids": tf.reshape(
                 questions_input_ids, [-1, self.max_query_length]),
             "question/attention_mask": tf.reshape(
@@ -326,6 +334,7 @@ class HardPipeline(Pipeline):
         negative_contexts_attention_mask = tf.io.parse_tensor(
             item["negative_context/attention_mask"], out_type=tf.int32)
         return {
+            "sample_id": tf.cast(item["sample_id"], dtype=tf.int32),
             "negative_context/input_ids": tf.reshape(
                 negative_contexts_input_ids, [-1, self.max_context_length]),
             "negative_context/attention_mask": tf.reshape(
@@ -341,12 +350,16 @@ class HardPipeline(Pipeline):
         attention_mask_sampled = compact_sampled[:, 1]
         return input_ids_sampled, attention_mask_sampled
 
-    @staticmethod
-    def sample_hard(item):
+    def sample_hard(self, item):
         question_input_ids, question_attention_mask = HardPipeline.sample_attribute(
             item["question/input_ids"], item["question/attention_mask"])
+        hardneg_context_input_ids = item["hardneg_context/input_ids"]
+        hardneg_context_attention_mask = item["hardneg_context/attention_mask"]
+        if self.limit_hardnegs > 0:
+            hardneg_context_input_ids = hardneg_context_input_ids[:self.limit_hardnegs]
+            hardneg_context_attention_mask = hardneg_context_attention_mask[:self.limit_hardnegs]
         hardneg_context_input_ids, hardneg_context_attention_mask = HardPipeline.sample_attribute(
-            item["hardneg_context/input_ids"], item["hardneg_context/attention_mask"])
+            hardneg_context_input_ids, hardneg_context_attention_mask)
         combine_input_ids = tf.concat(
             [item["positive_context/input_ids"], item["hardneg_context/input_ids"]],
             axis=0
@@ -362,6 +375,7 @@ class HardPipeline(Pipeline):
         combine_attention_mask_sampled = combine_compact_sampled[:, 1]
 
         return {
+            "sample_id": item["sample_id"],
             "question/input_ids": question_input_ids,
             "question/attention_mask": question_attention_mask,
             "hardneg_context/input_ids": hardneg_context_input_ids,
@@ -375,6 +389,7 @@ class HardPipeline(Pipeline):
         negative_context_input_ids, negative_context_attention_mask = HardPipeline.sample_attribute(
             item["negative_context/input_ids"], item["negative_context/attention_mask"])
         return {
+            "sample_id": item["sample_id"],
             "negative_context/input_ids": negative_context_input_ids,
             "negative_context/attention_mask": negative_context_attention_mask
         }
@@ -429,11 +444,12 @@ class HardPipeline(Pipeline):
                 )
                 sample_from_nonhard = min(self.max_samplings, sample_from_nonhard)
             else:
-                sample_from_nonhard = self.contrastive_size
+                sample_from_nonhard = min(self.contrastive_size, nonhard_dataset_size)
                 sample_from_hard = int(
-                    (hard_dataset_size - self.forward_batch_size) / nonhard_dataset_size * self.contrastive_size
+                    (hard_dataset_size - self.forward_batch_size) / nonhard_dataset_size * sample_from_nonhard
                 )
                 sample_from_hard = min(self.max_samplings, sample_from_hard)
+                sample_from_hard = max(sample_from_hard, self.contrastive_size)
         # configuration />
         
         # < hard pipeline transformations
@@ -461,6 +477,7 @@ class HardPipeline(Pipeline):
     def build_contrastive_sample(self, *item):
         hard_batch = item[0]
         grouped_data = {
+            "sample_id": hard_batch["sample_id"][:self.forward_batch_size],
             "question/input_ids": hard_batch["question/input_ids"][:self.forward_batch_size],
             "question/attention_mask": hard_batch["question/attention_mask"][:self.forward_batch_size],
             "hardneg_context/input_ids": hard_batch["hardneg_context/input_ids"][:self.forward_batch_size],
@@ -469,6 +486,10 @@ class HardPipeline(Pipeline):
 
         nonhard_batch = item[1]
         negative_samples = {
+            "attach/sample_id": tf.concat(
+                [hard_batch["sample_id"][self.forward_batch_size:], nonhard_batch["sample_id"]]
+                , axis=0
+            ),
             "negative_context/input_ids": tf.concat(
                 [hard_batch["combine/input_ids"][self.forward_batch_size:], nonhard_batch["negative_context/input_ids"]],
                 axis=0
@@ -479,18 +500,23 @@ class HardPipeline(Pipeline):
             )
         }
         negative_samples_compact = tf.stack(
-            [negative_samples["negative_context/input_ids"], negative_samples["negative_context/attention_mask"]],
+            [
+                negative_samples["negative_context/input_ids"],
+                negative_samples["negative_context/attention_mask"],
+                tf.tile(tf.expand_dims(negative_samples["attach/sample_id"], axis=1), [1, self.max_context_length])
+            ],
             axis=-1
         )
         negative_samples_shuffled = tf.random.shuffle(negative_samples_compact)
         negative_samples = {
+            "sample_id": negative_samples_shuffled[:self.contrastive_size, :, 2][:, 0],
             "negative_context/input_ids": negative_samples_shuffled[:self.contrastive_size, :, 0],
             "negative_context/attention_mask": negative_samples_shuffled[:self.contrastive_size, :, 1]
         }
         return grouped_data, negative_samples
 
 
-def main():
+def measure_fetch_time():
     with open("configs/pipeline_training_config.json", "r") as reader:
         pipeline_config = json.load(reader)
 
@@ -508,6 +534,7 @@ def main():
         max_context_length=pipeline_config["max_context_length"],
         forward_batch_size=pipeline_config["forward_batch_size_hardneg_neg"],
         contrastive_size=pipeline_config["contrastive_size_hardneg_neg"],
+        limit_hardnegs=pipeline_config["limit_hardnegs"],
         hard_data_source="data/v2/tfrecord/train/hard/onlyhard",
         nonhard_data_source="data/v2/tfrecord/train/hard/nonhard"
     )
@@ -518,12 +545,12 @@ def main():
         max_context_length=pipeline_config["max_context_length"],
         forward_batch_size=pipeline_config["forward_batch_size_pos_hardneg"],
         contrastive_size=pipeline_config["contrastive_size_pos_hardneg"],
+        limit_hardnegs=pipeline_config["limit_hardnegs"],
         data_source="data/v2/tfrecord/train/poshard"
     )
     poshard_dataset = poshard_pipeline.build()
     
     import time
-    from tqdm import tqdm
     import logging
     from libs.utils.logging import add_color_formater
 
@@ -548,6 +575,56 @@ def main():
         if idx == 10000:
             break
     logger.info("Elapsed time (PosHard): {}s".format(time.perf_counter() - start_time))
+
+
+def test_pipeline():
+    with open("configs/pipeline_training_config.json", "r") as reader:
+        pipeline_config = json.load(reader)
+
+    # pos_pipeline = PosPipeline(
+    #     max_query_length=pipeline_config["max_query_length"],
+    #     max_context_length=pipeline_config["max_context_length"],
+    #     forward_batch_size=pipeline_config["forward_batch_size_pos_neg"],
+    #     contrastive_size=pipeline_config["contrastive_size_pos_neg"],
+    #     data_source="data/v2/tfrecord/train/pos"
+    # )
+    # pos_dataset = pos_pipeline.build()
+
+    hard_pipeline = HardPipeline(
+        max_query_length=pipeline_config["max_query_length"],
+        max_context_length=pipeline_config["max_context_length"],
+        forward_batch_size=pipeline_config["forward_batch_size_hardneg_neg"],
+        contrastive_size=pipeline_config["contrastive_size_hardneg_neg"],
+        limit_hardnegs=pipeline_config["limit_hardnegs"],
+        hard_data_source="data/v2/tfrecord/train/hard/onlyhard",
+        nonhard_data_source="data/v2/tfrecord/train/hard/nonhard"
+    )
+    hard_dataset = hard_pipeline.build()
+    
+    def _take_id(*item):
+        grouped_ids = item[0]["sample_id"]
+        negative_ids = item[1]["sample_id"]
+        return {
+            "grouped_ids": grouped_ids,
+            "negative_ids": negative_ids
+        }
+
+    hard_dataset = hard_dataset.map(_take_id)
+    num_duplicated = 0
+    num_steps = 500000
+    for idx, item in tqdm(enumerate(hard_dataset)):
+        grouped_ids = set(item["grouped_ids"].numpy().tolist())
+        negative_ids = set(item["negative_ids"].numpy().tolist())
+        common_ids = grouped_ids.intersection(negative_ids)
+        num_duplicated += len(common_ids)
+        if idx == num_steps - 1:
+            break
+
+    print("Number of duplicated per {} steps: {}".format(num_steps, num_duplicated))
+
+
+def main():
+    test_pipeline()
     
 
 if __name__ == "__main__":

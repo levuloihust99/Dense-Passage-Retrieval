@@ -102,6 +102,7 @@ def create_pos_example(
     positive_contexts_feature = create_feature(positive_contexts_tokenized)
 
     features = {
+        'sample_id': tf.train.Feature(int64_list=tf.train.Int64List(value=[item["sample_id"]])),
         'question/input_ids': questions_features["input_ids_feature"],
         'question/attention_mask': questions_features["attention_mask_feature"],
         'positive_context/input_ids': positive_contexts_feature["input_ids_feature"],
@@ -151,6 +152,7 @@ def create_poshard_example(
     hardneg_mask = hardneg_mask + [0] * pad_length
 
     features = {
+        'sample_id': tf.train.Feature(int64_list=tf.train.Int64List(value=[item["sample_id"]])),
         'question/input_ids': questions_features["input_ids_feature"],
         'question/attention_mask': questions_features["attention_mask_feature"],
         'positive_context/input_ids': positive_contexts_feature["input_ids_feature"],
@@ -177,6 +179,7 @@ def create_nonhard_example(
     )
     positive_contexts_feature = create_feature(positive_contexts_tokenized)
     features = {
+        'sample_id': tf.train.Feature(int64_list=tf.train.Int64List(value=[item["sample_id"]])),
         'negative_context/input_ids': positive_contexts_feature["input_ids_feature"],
         'negative_context/attention_mask': positive_contexts_feature["attention_mask_feature"]
     }
