@@ -92,10 +92,6 @@ def main():
     # instantiate configuration
     config = DualEncoderConfig(**hparams)
     config_dir = os.path.dirname(config.config_file)
-    if not tf.io.gfile.exists(config_dir):
-        tf.io.gfile.makedirs(config_dir)
-    with tf.io.gfile.GFile(config.config_file, 'w') as writer:
-        writer.write(config.to_json_string())
 
     # setup environment
     setup_memory_growth()
@@ -194,6 +190,10 @@ def main():
     # training
     train_config = copy.deepcopy(config)
     train_config.regulate_factor = regulate_factor
+    if not tf.io.gfile.exists(config_dir):
+        tf.io.gfile.makedirs(config_dir)
+    with tf.io.gfile.GFile(config.config_file, 'w') as writer:
+        writer.write(config.to_json_string())
     trainer = DualEncoderTrainer(
         config=train_config,
         dual_encoder=dual_encoder,
