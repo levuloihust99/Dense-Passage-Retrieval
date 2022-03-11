@@ -32,18 +32,15 @@ class DualEncoderConfig(CommonConfig):
         # dual-encoder-specific
         self.model_name = 'dual-encoder'
         self.model_arch = 'roberta'
-        self.context_max_seq_length = 256
-        self.query_max_seq_length = 64
         self.use_hardneg = True
-        self.use_stratified_loss = True
         self.sim_score = 'cosine'
 
-        # data
-        self.tfrecord_dir = 'data/tfrecord/dual_encoder/train'
+        # data pipeline
+        self.pipeline_config_file = 'configs/pipeline_training_config.json'
+        self.regulate_factor = None
 
         # training configurations
         self.learning_rate = 5e-5
-        self.train_batch_size = 16
         self.eval_batch_size = 256
         self.num_train_steps = 10000
         self.num_train_epochs = None
@@ -56,7 +53,7 @@ class DualEncoderConfig(CommonConfig):
 
         # logging
         self.logging_steps = 100
-        self.save_checkpoint_freq = 'epoch'
+        self.save_checkpoint_freq = self.logging_steps * 10
         self.keep_checkpoint_max = 5
 
         # pretrained model path
@@ -85,11 +82,14 @@ class DualEncoderConfig(CommonConfig):
             assert self.save_checkpoint_freq == 'epoch', \
                 "Only `epoch` or integers are supported for `save_checkpoint_freq`. Current value: {}".format(
                     self.save_checkpoint_freq)
+        with open(self.pipeline_config_file, "r") as reader:
+            pipeline_config = json.load(reader)
+        self.pipeline_config = pipeline_config
 
         # model_name-specific params
         self.checkpoint_dir = os.path.join(
-            'checkpoints/dual_encoder', self.model_name)
-        log_dir = os.path.join('logs/dual_encoder', self.model_name)
+            'checkpoints', self.model_name)
+        log_dir = os.path.join('logs', self.model_name)
         self.tensorboard_dir = os.path.join(log_dir, 'tensorboard')
         self.log_file = os.path.join(log_dir, 'track.log')
         self.config_file = os.path.join(log_dir, 'config.json')

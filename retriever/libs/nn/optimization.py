@@ -24,7 +24,7 @@ def get_adamw(
 
     warmup_schedule = nlp.optimization.WarmUp(
         initial_learning_rate=learning_rate,
-        decay_schedule_fn = decay_schedule,
+        decay_schedule_fn=decay_schedule,
         warmup_steps=warmup_steps
     )
 

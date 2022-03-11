@@ -63,7 +63,8 @@ class DenseIndexer(object):
         index_file, meta_file = self.get_files(path)
 
         self.index = faiss.read_index(index_file)
-        logger.info("Loaded index of type `%s` and size %d", type(self.index), self.index.ntotal)
+        logger.info("Loaded index of type `%s` and size %d",
+                    type(self.index), self.index.ntotal)
 
         with open(meta_file, "rb") as reader:
             self.meta = pickle.load(reader)
@@ -87,8 +88,9 @@ class DenseFlatIndexer(DenseIndexer):
         n = len(data)
         # indexing in batches is beneficial for many faiss index types
         for i in range(0, n, self.buffer_size):
-            meta_data = [t[0] for t in data[i : i + self.buffer_size]]
-            vectors = [np.reshape(t[1], (1, -1)) for t in data[i : i + self.buffer_size]]
+            meta_data = [t[0] for t in data[i: i + self.buffer_size]]
+            vectors = [np.reshape(t[1], (1, -1))
+                       for t in data[i: i + self.buffer_size]]
             vectors = np.concatenate(vectors, axis=0)
             total_data = self._update_meta(meta_data)
             self.index.add(vectors)
@@ -100,7 +102,8 @@ class DenseFlatIndexer(DenseIndexer):
     def search_knn(self, query_vectors: np.array, top_docs: int) -> List[Tuple[List[object], List[float]]]:
         scores, indexes = self.index.search(query_vectors, top_docs)
         # convert to external ids
-        meta_data = [[self.meta[i] for i in query_top_idxs] for query_top_idxs in indexes]
+        meta_data = [[self.meta[i] for i in query_top_idxs]
+                     for query_top_idxs in indexes]
         result = [(meta_data[i], scores[i]) for i in range(len(meta_data))]
         return result
 

@@ -12,7 +12,7 @@ class DualEncoder(tf.keras.Model):
         super(DualEncoder, self).__init__(name=name, **kwargs)
         self.query_encoder = query_encoder
         self.context_encoder = context_encoder
-    
+
     def call(
         self,
         query_input_ids: tf.Tensor,
@@ -42,7 +42,7 @@ class DualEncoder(tf.keras.Model):
         else:
             query_sequence_embeddings = query_outputs[0]
             context_sequence_embeddings = context_outputs[0]
-        
+
         query_embedding = query_sequence_embeddings[:, 0, :]
         context_embedding = context_sequence_embeddings[:, 0, :]
         return query_embedding, context_embedding

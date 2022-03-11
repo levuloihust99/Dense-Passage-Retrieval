@@ -10,8 +10,8 @@ from typing import Text, Dict, List, Any
 import numpy as np
 import tensorflow as tf
 
-from libs.nn.configuration.dual_encoder import DualEncoderConfig
-from libs.nn.constants import ARCHITECTURE_MAPPINGS
+from libs.nn.configuration import DualEncoderConfig
+from libs.constants import TOKENIZER_MAPPING, MODEL_MAPPING
 from libs.utils.logging import add_color_formater
 from libs.utils.setup import setup_memory_growth
 from libs.utils.evaluation import calculate_metrics
@@ -34,7 +34,7 @@ def load_query_encoder(config: DualEncoderConfig):
     start_time = time.perf_counter()
 
     ckpt_path = tf.train.latest_checkpoint(config.checkpoint_dir)
-    encoder_class = ARCHITECTURE_MAPPINGS[config.model_arch]['model_class']
+    encoder_class = MODEL_MAPPING[config.model_arch]
     query_encoder = encoder_class.from_pretrained(config.pretrained_model_path)
     dual_encoder = tf.train.Checkpoint(query_encoder=query_encoder)
     ckpt = tf.train.Checkpoint(model=dual_encoder)
@@ -176,7 +176,7 @@ def main():
 
     config = DualEncoderConfig.from_json_file(args.config_file)
     qa_test_data = load_test_data(args.qa_path)
-    tokenizer_class = ARCHITECTURE_MAPPINGS[config.model_arch]['tokenizer_class']
+    tokenizer_class = TOKENIZER_MAPPING[config.model_arch]
     tokenizer = tokenizer_class.from_pretrained(args.tokenizer_path)
     indexer = DenseFlatIndexer()
     indexer.deserialize(args.index_path)

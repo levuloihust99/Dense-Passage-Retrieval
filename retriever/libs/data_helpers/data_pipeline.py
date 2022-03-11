@@ -1,7 +1,7 @@
 import json
 import glob
 import os
-from typing import Text, List, Dict, Tuple
+from typing import Text, List, Dict, Tuple, Any
 from tqdm import tqdm
 import tensorflow as tf
 
@@ -95,7 +95,10 @@ class PosPipeline(Pipeline):
             "negative_context/input_ids": item["positive_context/input_ids"][self.forward_batch_size:],
             "negative_context/attention_mask": item["positive_context/attention_mask"][self.forward_batch_size:]
         }
-        return grouped_data, negatives_sampled
+        return {
+            "grouped_data": grouped_data,
+            "negative_samples": negatives_sampled
+        }
     
     def build(self):
         tfrecord_files = sorted(glob.glob(os.path.join(self.data_source, "*")))
@@ -156,6 +159,7 @@ class PosHardPipeline(Pipeline):
             "hardneg_mask": tf.io.FixedLenFeature(shape=[self.contrastive_size], dtype=tf.int64),
             "num_hardneg": tf.io.FixedLenFeature(shape=[], dtype=tf.int64)
         }
+        self.dataset_size = -1
     
     def parse_ex(self, ex):
         return tf.io.parse_example(ex, self.feature_description)
@@ -246,6 +250,14 @@ class PosHardPipeline(Pipeline):
             lambda x: tf.data.TFRecordDataset(x),
             num_parallel_calls=tf.data.AUTOTUNE,
         )
+
+        # < calculate dataset size
+        count = 0
+        for item in dataset:
+            count += 1
+        self.dataset_size = count
+        # />
+
         dataset = dataset.map(self.parse_ex, num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.map(self.decode, num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.shuffle(buffer_size=10000).repeat()
@@ -513,7 +525,10 @@ class HardPipeline(Pipeline):
             "negative_context/input_ids": negative_samples_shuffled[:self.contrastive_size, :, 0],
             "negative_context/attention_mask": negative_samples_shuffled[:self.contrastive_size, :, 1]
         }
-        return grouped_data, negative_samples
+        return {
+            "grouped_data": grouped_data,
+            "negative_samples": negative_samples
+        }
 
 
 def measure_fetch_time():
@@ -577,6 +592,52 @@ def measure_fetch_time():
     logger.info("Elapsed time (PosHard): {}s".format(time.perf_counter() - start_time))
 
 
+def get_pipelines(pipeline_config: Dict[Text, Any], use_hardneg=True):
+    pos_pipeline = PosPipeline(
+        max_query_length=pipeline_config["max_query_length"],
+        max_context_length=pipeline_config["max_context_length"],
+        forward_batch_size=pipeline_config["forward_batch_size_pos_neg"],
+        contrastive_size=pipeline_config["contrastive_size_pos_neg"],
+        data_source=pipeline_config["pos_data_source"]
+    )
+    pos_dataset = pos_pipeline.build()
+
+    if use_hardneg:
+        hard_pipeline = HardPipeline(
+            max_query_length=pipeline_config["max_query_length"],
+            max_context_length=pipeline_config["max_context_length"],
+            forward_batch_size=pipeline_config["forward_batch_size_hardneg_neg"],
+            contrastive_size=pipeline_config["contrastive_size_hardneg_neg"],
+            limit_hardnegs=pipeline_config["limit_hardnegs"],
+            hard_data_source=pipeline_config["hard_data_source"]["onlyhard"],
+            nonhard_data_source=pipeline_config["hard_data_source"]["nonhard"]
+        )
+        hard_dataset = hard_pipeline.build()
+
+        poshard_pipeline = PosHardPipeline(
+            max_query_length=pipeline_config["max_query_length"],
+            max_context_length=pipeline_config["max_context_length"],
+            forward_batch_size=pipeline_config["forward_batch_size_pos_hardneg"],
+            contrastive_size=pipeline_config["contrastive_size_pos_hardneg"],
+            limit_hardnegs=pipeline_config["limit_hardnegs"],
+            data_source=pipeline_config["poshard_data_source"]
+        )
+        poshard_dataset = poshard_pipeline.build()
+
+        return {
+            "pos_dataset": pos_dataset,
+            "hard_dataset": hard_dataset,
+            "poshard_dataset": poshard_dataset,
+            "pos_dataset_size": pos_pipeline.dataset_size,
+            "poshard_dataset_size": poshard_pipeline.dataset_size
+        }
+    else:
+        return {
+            "pos_dataset": pos_dataset,
+            "pos_dataset_size": pos_pipeline.dataset_size
+        }
+
+
 def test_pipeline():
     with open("configs/pipeline_training_config.json", "r") as reader:
         pipeline_config = json.load(reader)
@@ -588,7 +649,7 @@ def test_pipeline():
     #     contrastive_size=pipeline_config["contrastive_size_pos_neg"],
     #     data_source="data/v2/tfrecord/train/pos"
     # )
-    # pos_dataset = pos_pipeline.build()
+    # dataset = pos_pipeline.build()
 
     hard_pipeline = HardPipeline(
         max_query_length=pipeline_config["max_query_length"],
@@ -599,7 +660,7 @@ def test_pipeline():
         hard_data_source="data/v2/tfrecord/train/hard/onlyhard",
         nonhard_data_source="data/v2/tfrecord/train/hard/nonhard"
     )
-    hard_dataset = hard_pipeline.build()
+    dataset = hard_pipeline.build()
     
     def _take_id(*item):
         grouped_ids = item[0]["sample_id"]
@@ -609,10 +670,10 @@ def test_pipeline():
             "negative_ids": negative_ids
         }
 
-    hard_dataset = hard_dataset.map(_take_id)
+    dataset = dataset.map(_take_id)
     num_duplicated = 0
     num_steps = 500000
-    for idx, item in tqdm(enumerate(hard_dataset)):
+    for idx, item in tqdm(enumerate(dataset)):
         grouped_ids = set(item["grouped_ids"].numpy().tolist())
         negative_ids = set(item["negative_ids"].numpy().tolist())
         common_ids = grouped_ids.intersection(negative_ids)
