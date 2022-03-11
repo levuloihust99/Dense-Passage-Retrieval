@@ -41,7 +41,6 @@ def main():
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--eval-batch-size", type=int)
     parser.add_argument("--num-train-steps", type=int)
-    parser.add_argument("--num-train-epochs", type=int)
     # optimization
     parser.add_argument("--lr-decay-power", type=float)
     parser.add_argument("--weight-decay-rate", type=float)
@@ -193,7 +192,7 @@ def main():
     if not tf.io.gfile.exists(config_dir):
         tf.io.gfile.makedirs(config_dir)
     with tf.io.gfile.GFile(config.config_file, 'w') as writer:
-        writer.write(config.to_json_string())
+        writer.write(train_config.to_json_string())
     trainer = DualEncoderTrainer(
         config=train_config,
         dual_encoder=dual_encoder,

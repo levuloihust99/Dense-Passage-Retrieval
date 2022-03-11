@@ -43,7 +43,6 @@ class DualEncoderConfig(CommonConfig):
         self.learning_rate = 5e-5
         self.eval_batch_size = 256
         self.num_train_steps = 10000
-        self.num_train_epochs = None
 
         # optimization
         self.lr_decay_power = 1.0  # Linear weight decay by default
