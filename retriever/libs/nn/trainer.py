@@ -205,12 +205,12 @@ class DualEncoderTrainer(object):
         )
         return accumulate_loss / backward_accumulate_steps
 
-    # @tf.function
+    @tf.function
     def update_params(self, grads):
         self.optimizer.apply_gradients(zip(
             grads, self.dual_encoder.trainable_variables), experimental_aggregate_gradients=False)
 
-    # @tf.function
+    @tf.function
     def pos_step_fn(self, item):
         grouped_data = item["grouped_data"]
         negative_samples = item["negative_samples"]
@@ -246,7 +246,7 @@ class DualEncoderTrainer(object):
             "grads": ctx.all_reduce(tf.distribute.ReduceOp.SUM, grads)
         }
 
-    # @tf.function
+    @tf.function
     def hard_step_fn(self, item):
         grouped_data = item["grouped_data"]
         negative_samples = item["negative_samples"]
@@ -282,7 +282,7 @@ class DualEncoderTrainer(object):
             "grads": ctx.all_reduce(tf.distribute.ReduceOp.SUM, grads)
         }
 
-    # @tf.function
+    @tf.function
     def poshard_step_fn(self, item):
         query_input_ids = item["question/input_ids"]
         query_attention_mask = item["question/attention_mask"]

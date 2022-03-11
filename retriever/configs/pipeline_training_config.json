@@ -13,7 +13,7 @@
     "max_context_length": 256,
     "tokenizer_type": "roberta",
     "tokenizer_path": "vinai/phobert-base",
-    "pos_datasource": "data/v2/tfrecord/train/pos",
+    "pos_data_source": "data/v2/tfrecord/train/pos",
     "hard_data_source": {
         "onlyhard": "data/v2/tfrecord/train/hard/onlyhard",
         "nonhard": "data/v2/tfrecord/train/hard/nonhard"
