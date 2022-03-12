@@ -2,14 +2,13 @@ import argparse
 import logging
 import json
 import os
-from typing import Text, Dict, List, Union
+from typing import Text, Dict, List, Union, Literal
 import tensorflow as tf
 
-from libs.data_helpers.tfio.dual_encoder.loader import load_corpus_dataset
-from libs.data_helpers.data_utils import load_corpus_to_list
-from libs.nn.configuration.dual_encoder import DualEncoderConfig
-from libs.nn.constants import ARCHITECTURE_MAPPINGS
-from libs.nn.modeling.dual_encoder import DualEncoder
+from libs.data_helpers.corpus_data import load_corpus_dataset
+from libs.nn.configuration import DualEncoderConfig
+from libs.constants import MODEL_MAPPING
+from libs.nn.modeling import DualEncoder
 from libs.utils.logging import add_color_formater
 from libs.utils.setup import setup_memory_growth, setup_distribute_strategy
 from libs.faiss_indexer import DenseFlatIndexer
@@ -50,39 +49,49 @@ def generate_embeddings(
     return embeddings
 
 
-def load_context_encoder(config: DualEncoderConfig):
-    ckpt_path = tf.train.latest_checkpoint(config.checkpoint_dir)
-    encoder_class = ARCHITECTURE_MAPPINGS[config.model_arch]['model_class']
-    context_encoder = encoder_class.from_pretrained(config.pretrained_model_path)
-    dual_encoder = tf.train.Checkpoint(context_encoder=context_encoder)
-    ckpt = tf.train.Checkpoint(model=dual_encoder)
-    ckpt.restore(ckpt_path).expect_partial()
+def load_context_encoder(
+    checkpoint_dir: Text,
+    architecture: Literal["bert", "roberta"],
+    pretrained_model_path: Text
+):
+    ckpt_path = tf.train.latest_checkpoint(checkpoint_dir)
+    if ckpt_path:
+        encoder_class = MODEL_MAPPING[architecture]
+        context_encoder = encoder_class.from_pretrained(pretrained_model_path)
+        dual_encoder = tf.train.Checkpoint(context_encoder=context_encoder)
+        ckpt = tf.train.Checkpoint(model=dual_encoder)
+        ckpt.restore(ckpt_path).expect_partial()
+        logger.info("Restored checkpoint from {}".format(ckpt_path))
+    else:
+        raise Exception("Checkpoint not found in the given directory '{}'".format(checkpoint_dir))
     return context_encoder
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config-file", required=True)
-    parser.add_argument("--index-path", required=True)
-    parser.add_argument("--corpus-path", required=True)
-    parser.add_argument("--corpus-tfrecord-dir", required=True)
     args = parser.parse_args()
-    config = DualEncoderConfig.from_json_file(args.config_file)
+
+    with open(args.config_file, "r") as reader:
+        config = json.load(reader)
+    config = argparse.Namespace(**config)
     
     # setup environment
     setup_memory_growth()
     strategy = setup_distribute_strategy(use_tpu=config.use_tpu, tpu_name=config.tpu_name)
 
     dataset, num_examples = load_corpus_dataset(
-        tfrecord_dir=args.corpus_tfrecord_dir,
-        context_max_seq_length=config.context_max_seq_length
+        data_source=config.corpus_tfrecord_dir,
+        max_context_length=config.max_context_length
     )
+    dataset = dataset.take(160)
+    num_examples = 160
     if num_examples % (config.eval_batch_size * strategy.num_replicas_in_sync) != 0:
         num_forwards = num_examples // (config.eval_batch_size * strategy.num_replicas_in_sync)
         num_fake_examples = (num_forwards + 1) * config.eval_batch_size * strategy.num_replicas_in_sync - num_examples
         fake_dataset = tf.data.Dataset.from_tensor_slices({
-            'input_ids': tf.zeros([num_fake_examples, config.context_max_seq_length], dtype=tf.int32),
-            'attention_mask': tf.ones([num_fake_examples, config.context_max_seq_length], dtype=tf.int32)
+            'input_ids': tf.zeros([num_fake_examples, config.max_context_length], dtype=tf.int32),
+            'attention_mask': tf.ones([num_fake_examples, config.max_context_length], dtype=tf.int32)
         })
         dataset = dataset.concatenate(fake_dataset)
 
@@ -94,14 +103,20 @@ def main():
 
     # instantiate model
     with strategy.scope():
-        context_encoder = load_context_encoder(config)
+        context_encoder = load_context_encoder(
+            checkpoint_dir=config.checkpoint_dir,
+            architecture=config.architecture,
+            pretrained_model_path=config.pretrained_model_path
+        )
     
     embeddings = generate_embeddings(context_encoder, dist_dataset, strategy)
-    corpus = load_corpus_to_list(args.corpus_path)
+    with open(config.corpus_path, "r") as reader:
+        corpus = json.load(reader)
     embeddings = embeddings[:len(corpus)]
     embeddings = [e.numpy() for e in embeddings]
 
     data_to_be_indexed = []
+    corpus = corpus[:160]
     for idx in range(len(corpus)):
         data_to_be_indexed.append((
             corpus[idx],
@@ -113,15 +128,15 @@ def main():
     indexer.init_index(vector_sz=embeddings[0].shape[0])
     indexer.index_data(data_to_be_indexed)
 
-    if os.path.isfile(args.index_path):
-        index_dir = os.path.basename(args.index_path)
+    if os.path.isfile(config.index_path):
+        index_dir = os.path.basename(config.index_path)
     else:
-        index_dir = args.index_path
+        index_dir = config.index_path
     
     if tf.io.gfile.exists(index_dir):
         tf.io.gfile.makedirs(index_dir)
 
-    indexer.serialize(args.index_path)
+    indexer.serialize(config.index_path)
 
 
 if __name__ == "__main__":

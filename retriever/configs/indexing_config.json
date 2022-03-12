@@ -1,0 +1,12 @@
+{
+    "use_tpu": false,
+    "tpu_name": "",
+    "eval_batch_size": 16,
+    "max_context_length": 256,
+    "checkpoint_dir": "checkpoints/luffy",
+    "pretrained_model_path": "pretrained/vinai/phobert-base",
+    "architecture": "roberta",
+    "corpus_tfrecord_dir": "data/v2/tfrecord/corpus",
+    "corpus_path": "data/v2/evn_spc/corpus.json",
+    "index_path": "indexes"
+}
