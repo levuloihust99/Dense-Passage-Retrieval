@@ -49,7 +49,7 @@ def dump_corpus(
         example_writer.write(tf_example.SerializeToString())
 
     example_writer.close()
-    logger.info("Done writing {} examples".format(counter))
+    logger.info("Done writing {} examples".format(idx + 1))
 
 
 def load_corpus_dataset(
@@ -58,10 +58,8 @@ def load_corpus_dataset(
 ):
     tfrecord_files = sorted(glob.glob(os.path.join(data_source, "*")))
     dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
-    dataset = dataset.interleave(
+    dataset = dataset.flat_map(
         lambda x: tf.data.TFRecordDataset(x),
-        num_parallel_calls=tf.data.AUTOTUNE,
-        deterministic=False
     )
     count = 0
     for _ in dataset:

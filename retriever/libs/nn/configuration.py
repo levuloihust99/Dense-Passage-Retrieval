@@ -73,8 +73,6 @@ class DualEncoderConfig(CommonConfig):
                 model_name_specific_kwargs[param] = kwargs.pop(param)
 
         self.override_defaults(**kwargs)
-        if self.use_hardneg is False and self.use_stratified_loss is True:
-            assert False, "You must use hard negative samples to use stratified loss."
         try:
             self.save_checkpoint_freq = int(self.save_checkpoint_freq)
         except:
