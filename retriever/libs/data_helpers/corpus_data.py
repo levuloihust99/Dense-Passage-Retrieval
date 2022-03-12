@@ -47,7 +47,6 @@ def dump_corpus(
                 tfrecord_dir, 'corpus_{:03d}.tfrecord'.format(counter)))
 
         example_writer.write(tf_example.SerializeToString())
-        counter += 1
 
     example_writer.close()
     logger.info("Done writing {} examples".format(counter))
