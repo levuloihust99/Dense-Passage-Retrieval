@@ -84,8 +84,6 @@ def main():
         data_source=config.corpus_tfrecord_dir,
         max_context_length=config.max_context_length
     )
-    dataset = dataset.take(160)
-    num_examples = 160
     if num_examples % (config.eval_batch_size * strategy.num_replicas_in_sync) != 0:
         num_forwards = num_examples // (config.eval_batch_size * strategy.num_replicas_in_sync)
         num_fake_examples = (num_forwards + 1) * config.eval_batch_size * strategy.num_replicas_in_sync - num_examples
@@ -116,7 +114,6 @@ def main():
     embeddings = [e.numpy() for e in embeddings]
 
     data_to_be_indexed = []
-    corpus = corpus[:160]
     for idx in range(len(corpus)):
         data_to_be_indexed.append((
             corpus[idx],
