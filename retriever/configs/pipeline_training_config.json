@@ -13,10 +13,11 @@
     "max_context_length": 256,
     "tokenizer_type": "roberta",
     "tokenizer_path": "vinai/phobert-base",
-    "pos_data_source": "data/v2/tfrecord/train/pos",
+    "pos_data_source": "data/v2/zalo/tfrecord/train/pos",
     "hard_data_source": {
-        "onlyhard": "data/v2/tfrecord/train/hard/onlyhard",
-        "nonhard": "data/v2/tfrecord/train/hard/nonhard"
+        "onlyhard": "data/v2/zalo/tfrecord/train/hard/onlyhard",
+        "nonhard": "data/v2/zalo/tfrecord/train/hard/nonhard"
     },
-    "poshard_data_source": "data/v2/tfrecord/train/poshard"
+    "poshard_data_source": "data/v2/zalo/tfrecord/train/poshard",
+    "use_nonhard": false
 }

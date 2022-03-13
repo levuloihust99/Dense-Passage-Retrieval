@@ -276,7 +276,8 @@ class HardPipeline(Pipeline):
         limit_hardnegs: int,
         hard_data_source: Text,
         nonhard_data_source: Text,
-        max_samplings: int = 100
+        max_samplings: int = 100,
+        use_nonhard: bool = True,
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
@@ -304,6 +305,7 @@ class HardPipeline(Pipeline):
         self.max_samplings = max_samplings
         self.hard_dataset_size = -1
         self.nonhard_dataset_size = -1
+        self.use_nonhard = use_nonhard
 
     def parse_ex_hard(self, ex):
         return tf.io.parse_example(ex, self.hard_feature_description)
@@ -422,6 +424,21 @@ class HardPipeline(Pipeline):
         # dataset size />
         # hard pipeline />
 
+        if not self.use_nonhard:
+            # < hard pipeline transformations
+            hard_dataset = hard_dataset.map(self.parse_ex_hard, num_parallel_calls=tf.data.AUTOTUNE)
+            hard_dataset = hard_dataset.map(self.decode_hard, num_parallel_calls=tf.data.AUTOTUNE)
+            hard_dataset = hard_dataset.shuffle(buffer_size=10000).repeat()
+            hard_dataset = hard_dataset.map(self.sample_hard, num_parallel_calls=tf.data.AUTOTUNE)
+            hard_dataset = hard_dataset.window(
+                self.forward_batch_size + self.contrastive_size, shift=self.forward_batch_size
+            )
+            hard_dataset = hard_dataset.flat_map(lambda x: tf.data.Dataset.zip(x))
+            hard_dataset = hard_dataset.batch(self.forward_batch_size + self.contrastive_size)
+            hard_dataset = hard_dataset.map(self.build_contrastive_sample_onlyhard)
+            return hard_dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
+            # hard pipeline transformations />
+
         # < nonhard pipeline
         tfrecord_files = sorted(glob.glob(os.path.join(self.nonhard_data_source, "*")))
         nonhard_dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
@@ -529,6 +546,24 @@ class HardPipeline(Pipeline):
             "grouped_data": grouped_data,
             "negative_samples": negative_samples
         }
+    
+    def build_contrastive_sample_onlyhard(self, item):
+        grouped_data = {
+            "sample_id": item["sample_id"][:self.forward_batch_size],
+            "question/input_ids": item["question/input_ids"][:self.forward_batch_size],
+            "question/attention_mask": item["question/attention_mask"][:self.forward_batch_size],
+            "hardneg_context/input_ids": item["hardneg_context/input_ids"][:self.forward_batch_size],
+            "hardneg_context/attention_mask": item["hardneg_context/attention_mask"][:self.forward_batch_size]
+        }
+        negatives_sampled = {
+            "sample_id": item["sample_id"][self.forward_batch_size:],
+            "negative_context/input_ids": item["hardneg_context/input_ids"][self.forward_batch_size:],
+            "negative_context/attention_mask": item["hardneg_context/attention_mask"][self.forward_batch_size:]
+        }
+        return {
+            "grouped_data": grouped_data,
+            "negative_samples": negatives_sampled
+        }
 
 
 def measure_fetch_time():
@@ -610,7 +645,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any], use_hardneg=True):
             contrastive_size=pipeline_config["contrastive_size_hardneg_neg"],
             limit_hardnegs=pipeline_config["limit_hardnegs"],
             hard_data_source=pipeline_config["hard_data_source"]["onlyhard"],
-            nonhard_data_source=pipeline_config["hard_data_source"]["nonhard"]
+            nonhard_data_source=pipeline_config["hard_data_source"]["nonhard"],
+            use_nonhard=pipeline_config["use_nonhard"]
         )
         hard_dataset = hard_pipeline.build()
 

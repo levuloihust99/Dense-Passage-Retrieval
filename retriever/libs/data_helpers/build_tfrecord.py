@@ -247,16 +247,17 @@ def main():
         )
     elif args.pipeline_type == "poshard":
         only_hard_data = [item for item in data if len(item["hardneg_contexts"]) > 0]
-        write_examples(
-            data=only_hard_data,
-            output_dir=args.output_dir,
-            tokenizer=tokenizer,
-            create_example_func=create_poshard_example,
-            num_examples_per_file=args.num_examples_per_file,
-            max_query_length=pipeline_config["max_query_length"],
-            max_context_length=pipeline_config["max_context_length"],
-            contrastive_size=pipeline_config["contrastive_size_pos_hardneg"]
-        )
+        if only_hard_data:
+            write_examples(
+                data=only_hard_data,
+                output_dir=args.output_dir,
+                tokenizer=tokenizer,
+                create_example_func=create_poshard_example,
+                num_examples_per_file=args.num_examples_per_file,
+                max_query_length=pipeline_config["max_query_length"],
+                max_context_length=pipeline_config["max_context_length"],
+                contrastive_size=pipeline_config["contrastive_size_pos_hardneg"]
+            )
     else:
         only_hard_data = []
         non_hard_data = []
@@ -266,25 +267,27 @@ def main():
             else:
                 non_hard_data.append(item)
 
-        write_examples(
-            data=only_hard_data,
-            output_dir=os.path.join(args.output_dir, "onlyhard"),
-            tokenizer=tokenizer,
-            create_example_func=create_poshard_example,
-            num_examples_per_file=args.num_examples_per_file,
-            max_query_length=pipeline_config["max_query_length"],
-            max_context_length=pipeline_config["max_context_length"],
-            contrastive_size=pipeline_config["contrastive_size_pos_hardneg"]
-        )
-        write_examples(
-            data=non_hard_data,
-            output_dir=os.path.join(args.output_dir, "nonhard"),
-            tokenizer=tokenizer,
-            create_example_func=create_nonhard_example,
-            num_examples_per_file=args.num_examples_per_file,
-            max_query_length=pipeline_config["max_query_length"],
-            max_context_length=pipeline_config["max_context_length"]
-        )
+        if only_hard_data:
+            write_examples(
+                data=only_hard_data,
+                output_dir=os.path.join(args.output_dir, "onlyhard"),
+                tokenizer=tokenizer,
+                create_example_func=create_poshard_example,
+                num_examples_per_file=args.num_examples_per_file,
+                max_query_length=pipeline_config["max_query_length"],
+                max_context_length=pipeline_config["max_context_length"],
+                contrastive_size=pipeline_config["contrastive_size_pos_hardneg"]
+            )
+        if non_hard_data:
+            write_examples(
+                data=non_hard_data,
+                output_dir=os.path.join(args.output_dir, "nonhard"),
+                tokenizer=tokenizer,
+                create_example_func=create_nonhard_example,
+                num_examples_per_file=args.num_examples_per_file,
+                max_query_length=pipeline_config["max_query_length"],
+                max_context_length=pipeline_config["max_context_length"]
+            )
 
 
 if __name__ == "__main__":

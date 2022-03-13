@@ -38,12 +38,14 @@ class DualEncoderTrainer(object):
         self.iterators = {k: iter(v) for k, v in self.datasets.items()}
 
     def train(self):
-        if self.config.use_hardneg:
-            self.train_with_hardneg()
-        else:
-            self.train_no_hardneg()
+        if self.config.train_mode == "hard":
+            self.train_hard()
+        elif self.config.train_mode == "poshard":
+            self.train_poshard()
+        elif self.config.train_mode == "pos":
+            self.train_pos()
 
-    def train_no_hardneg(self):
+    def train_pos(self):
         trained_steps = self.optimizer.iterations.numpy()
         logger.info(
             "************************ Start training ************************")
@@ -65,7 +67,7 @@ class DualEncoderTrainer(object):
             if global_step % self.config.save_checkpoint_freq == 0:
                 self.save_checkpoint()
 
-    def train_with_hardneg(self):
+    def train_hard(self):
         trained_steps = self.optimizer.iterations.numpy()
         logger.info(
             "************************ Start training ************************")
@@ -136,6 +138,61 @@ class DualEncoderTrainer(object):
                         "previous": [
                             {"value": pos_loss, "type": "Pos"},
                             {"value": poshard_loss, "type": "PosHard"}
+                        ]
+                    }
+                    self.log(info)
+                    start_time = time.perf_counter()
+                if global_step % self.config.save_checkpoint_freq == 0:
+                    self.save_checkpoint()
+            # hard pipelines />
+
+    def train_poshard(self):
+        trained_steps = self.optimizer.iterations.numpy()
+        logger.info(
+            "************************ Start training ************************")
+        global_step = trained_steps
+        pos_loss = -1.0
+        poshard_loss = -1.0
+        start_time = time.perf_counter()
+        while global_step < self.config.num_train_steps:
+            # < pos pipeline
+            if (global_step + 1) % (self.config.regulate_factor + 1) != 0:
+                pos_loss = self.accumulate_step(
+                    iterator=self.iterators["pos_dataset"],
+                    step_fn=self.pos_step_fn,
+                    backward_accumulate_steps=self.config.pipeline_config["backward_accumulate_pos_neg"]
+                )
+                global_step += 1
+                if global_step % self.config.logging_steps == 0:
+                    info = {
+                        "previous_time": start_time,
+                        "global_step": global_step,
+                        "current": {"value": pos_loss, "type": "Pos"},
+                        "previous": [
+                            {"value": poshard_loss, "type": "PosHard"},
+                        ]
+                    }
+                    self.log(info)
+                    start_time = time.perf_counter()
+                if global_step % self.config.save_checkpoint_freq == 0:
+                    self.save_checkpoint()
+            # pos pipeline />
+            # < hard pipelines
+            else:
+                poshard_loss = self.accumulate_step(
+                    iterator=self.iterators["poshard_dataset"],
+                    step_fn=self.poshard_step_fn,
+                    backward_accumulate_steps=self.config.pipeline_config[
+                        "backward_accumulate_pos_hardneg"]
+                )
+                global_step += 1
+                if global_step % self.config.logging_steps == 0:
+                    info = {
+                        "previous_time": start_time,
+                        "global_step": global_step,
+                        "current": {"value": poshard_loss, "type": "PosHard"},
+                        "previous": [
+                            {"value": pos_loss, "type": "Pos"},
                         ]
                     }
                     self.log(info)

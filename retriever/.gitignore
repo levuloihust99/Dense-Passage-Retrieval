@@ -77,3 +77,4 @@ pretrained/
 **/indexes/
 data*/
 interactive_script.ipynb
+tfdbg2_logdir/

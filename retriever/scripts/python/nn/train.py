@@ -33,7 +33,7 @@ def main():
     # dual-encoder specific
     parser.add_argument("--model-name")
     parser.add_argument("--model-arch")
-    parser.add_argument("--use-hardneg", type=eval)
+    parser.add_argument("--train-mode", choices=["pos", "poshard", "hard"])
     parser.add_argument("--sim-score", choices=['cosine', 'dot_product'])
     # data
     parser.add_argument("--pipeline-config-file")
@@ -109,22 +109,22 @@ def main():
     dist_pos_dataset = strategy.distribute_datasets_from_function(
         lambda _: datasets["pos_dataset"]
     )
-    if config.use_hardneg:
-        dist_hard_dataset = strategy.distribute_datasets_from_function(
-            lambda _: datasets["hard_dataset"]
-        )
-        dist_poshard_dataset = strategy.distribute_datasets_from_function(
-            lambda _: datasets["poshard_dataset"]
-        )
-        dist_datasets = {
-            "pos_dataset": dist_pos_dataset,
-            "hard_dataset": dist_hard_dataset,
-            "poshard_dataset": dist_poshard_dataset
-        }
+    dist_hard_dataset = strategy.distribute_datasets_from_function(
+        lambda _: datasets["hard_dataset"]
+    )
+    dist_poshard_dataset = strategy.distribute_datasets_from_function(
+        lambda _: datasets["poshard_dataset"]
+    )
+    dist_datasets = {
+        "pos_dataset": dist_pos_dataset,
+        "hard_dataset": dist_hard_dataset,
+        "poshard_dataset": dist_poshard_dataset
+    }
+    if config.train_mode != "pos":
         regulate_factor = datasets["pos_dataset_size"] // datasets["poshard_dataset_size"]
     else:
-        dist_datasets = {"pos_dataset": dist_pos_dataset}
         regulate_factor = None
+    
     logger.info("Done creating dataset in {}s".format(
         time.perf_counter() - start_time))
 

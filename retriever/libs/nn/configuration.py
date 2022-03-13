@@ -32,7 +32,7 @@ class DualEncoderConfig(CommonConfig):
         # dual-encoder-specific
         self.model_name = 'dual-encoder'
         self.model_arch = 'roberta'
-        self.use_hardneg = True
+        self.train_mode = 'pos'
         self.sim_score = 'cosine'
 
         # data pipeline

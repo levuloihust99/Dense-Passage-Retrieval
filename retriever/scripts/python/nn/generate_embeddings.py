@@ -52,9 +52,13 @@ def generate_embeddings(
 def load_context_encoder(
     checkpoint_dir: Text,
     architecture: Literal["bert", "roberta"],
-    pretrained_model_path: Text
+    pretrained_model_path: Text,
+    checkpoint_name=None
 ):
-    ckpt_path = tf.train.latest_checkpoint(checkpoint_dir)
+    if checkpoint_name:
+        ckpt_path = os.path.join(checkpoint_dir, checkpoint_name)
+    else:
+        ckpt_path = tf.train.latest_checkpoint(checkpoint_dir)
     if ckpt_path:
         encoder_class = MODEL_MAPPING[architecture]
         context_encoder = encoder_class.from_pretrained(pretrained_model_path)
@@ -104,7 +108,8 @@ def main():
         context_encoder = load_context_encoder(
             checkpoint_dir=config.checkpoint_dir,
             architecture=config.architecture,
-            pretrained_model_path=config.pretrained_model_path
+            pretrained_model_path=config.pretrained_model_path,
+            checkpoint_name=config.checkpoint_name
         )
     
     embeddings = generate_embeddings(context_encoder, dist_dataset, strategy)
