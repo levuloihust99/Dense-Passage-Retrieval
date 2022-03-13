@@ -6,8 +6,8 @@
     "checkpoint_dir": "checkpoints/dual_encoder/phobert_ZL-EVN_B16_NonLID_Dat02",
     "pretrained_model_path": "pretrained/vinai/phobert-base",
     "architecture": "roberta",
-    "corpus_tfrecord_dir": "data/v2/tfrecord/corpus",
-    "corpus_path": "data/v2/evn_spc/corpus.json",
-    "index_path": "indexes/validate",
+    "corpus_tfrecord_dir": "data/v2/zalo/data_tobe_indexed/tfrecord",
+    "corpus_path": "data/v2/zalo/data_tobe_indexed/corpus_meta.json",
+    "index_path": "indexes/phobert_ZL-EVN_B16_NonLID_Dat02",
     "checkpoint_name": "ckpt-50"
 }

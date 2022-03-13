@@ -15,7 +15,6 @@ from libs.constants import TOKENIZER_MAPPING, MODEL_MAPPING
 from libs.utils.logging import add_color_formater
 from libs.utils.setup import setup_memory_growth
 from libs.utils.evaluation import calculate_metrics
-from libs.data_helpers.data_utils import load_corpus_to_dict, tokenize_question
 from libs.faiss_indexer import DenseFlatIndexer
 
 
@@ -26,19 +25,18 @@ logger = logging.getLogger()
 def load_test_data(path: Text):
     with tf.io.gfile.GFile(path, 'r') as reader:
         data = json.load(reader)
-    return data.get('items')
+    return data
 
 
-def load_query_encoder(config: DualEncoderConfig):
+def load_query_encoder(checkpoint_path: Text, architecture: Text, pretrained_model_path: Text):
     logger.info("Loading query encoder...")
     start_time = time.perf_counter()
 
-    ckpt_path = tf.train.latest_checkpoint(config.checkpoint_dir)
-    encoder_class = MODEL_MAPPING[config.model_arch]
-    query_encoder = encoder_class.from_pretrained(config.pretrained_model_path)
+    encoder_class = MODEL_MAPPING[architecture]
+    query_encoder = encoder_class.from_pretrained(pretrained_model_path)
     dual_encoder = tf.train.Checkpoint(query_encoder=query_encoder)
     ckpt = tf.train.Checkpoint(model=dual_encoder)
-    ckpt.restore(ckpt_path).expect_partial()
+    ckpt.restore(checkpoint_path).expect_partial()
 
     logger.info("Done loading query encoder in {}s".format(
         time.perf_counter() - start_time))
@@ -48,19 +46,17 @@ def load_query_encoder(config: DualEncoderConfig):
 def create_query_dataset(
     queries: List[Text],
     tokenizer,
-    query_max_seq_length: int,
+    max_query_length: int,
     batch_size: int
 ):
     logger.info("Creating query dataset...")
     start_time = time.perf_counter()
-    query_tensors = []
-    for query in queries:
-        query_tensors.append(tokenize_question(
-            query, tokenizer, query_max_seq_length))
-    query_tensors = {
-        'input_ids': [tf.convert_to_tensor(q.get('input_ids')) for q in query_tensors],
-        'attention_mask': [tf.convert_to_tensor(q.get('attention_mask')) for q in query_tensors]
-    }
+    query_tensors = tokenizer(
+        queries, padding='max_length',
+        max_length=max_query_length,
+        truncation=True,
+        return_tensors="tf"
+    )
     logger.info("Done creating query dataset in {}s".format(
         time.perf_counter() - start_time))
     return tf.data.Dataset.from_tensor_slices(query_tensors).batch(batch_size).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
@@ -89,15 +85,13 @@ def evaluate(
     indexer: DenseFlatIndexer,
     tokenizer,
     result_dir: str,
-    query_max_seq_length: int,
+    max_query_length: int,
     batch_size: int = 256,
-    top_docs: int = 1,
-    debug=True,
-    write_out_results=False
+    top_docs: int = 10,
 ) -> np.ndarray:
     queries = [q.get('question') for q in qa_test_data]
     query_dataset = create_query_dataset(
-        queries, tokenizer, query_max_seq_length, batch_size)
+        queries, tokenizer, max_query_length, batch_size)
     query_embeddings = generate_query_embeddings(query_dataset, query_encoder)
 
     num_queries_per_search = 16
@@ -107,65 +101,38 @@ def evaluate(
                                          num_queries_per_search]
         search_results = indexer.search_knn(query_vectors, top_docs=top_docs)
         for idx, (metas, scores) in enumerate(search_results):
-            relevant_articles = []
-            for meta in metas:
-                record = {
-                    'law_id': meta.get('law_id'),
-                    'article_id': meta.get('article_id')
-                }
-                if write_out_results:
-                    record['title'] = meta.get('title')
-                    record['text'] = meta.get('text')
-                relevant_articles.append(record)
+            eval_results.append({
+                "question": queries[batch_idx + idx],
+                "relevant_articles": metas
+            })
 
-            if write_out_results:
-                output_record = {
-                    'question_id': qa_test_data[batch_idx + idx].get('question_id'),
-                    'question': qa_test_data[batch_idx + idx].get('question'),
-                    'relevant_articles': relevant_articles
-                }
-            else:
-                output_record = {
-                    'question_id': qa_test_data[batch_idx + idx].get('question_id'),
-                    'relevant_articles': relevant_articles
-                }
-            eval_results.append(output_record)
-
-    if write_out_results:
-        if not tf.io.gfile.exists(result_dir):
-            tf.io.gfile.makedirs(result_dir)
-        result_file = os.path.join(result_dir, 'retrieval_results.json')
-        with tf.io.gfile.GFile(result_file, 'w') as writer:
-            writer.write(json.dumps(
-                eval_results, indent=4, ensure_ascii=False))
-
-    if debug:
-        corpus = load_corpus_to_dict('data/legal_corpus.json')
-        precision, recall, f2_score = calculate_metrics(
-            eval_results, qa_test_data, corpus)
-        metric_file = os.path.join(result_dir, 'metrics.txt')
-        with tf.io.gfile.GFile(metric_file, 'w') as writer:
-            writer.write(
-                "Precision\t= {}\n"
-                "Recall\t\t= {}\n"
-                "F2-score\t= {}".format(precision, recall, f2_score)
-            )
+    metrics = calculate_metrics(qa_test_data, eval_results)
+    precision = metrics['precision']
+    recall = metrics['recall']
+    f1_score = metrics['f1_score']
+    top_hits = metrics['top_hits']
+    metric_file = os.path.join(result_dir, 'metrics.txt')
+    with tf.io.gfile.GFile(metric_file, 'w') as writer:
+        writer.write("Precision\t= {}\n".format(precision))
+        writer.write("Recall\t= {}\n".format(recall))
+        writer.write("F1 score\t= {}\n".format(f1_score))
+        writer.write("\n********************** Top hits **********************\n")
+        for idx, hit_score in enumerate(top_hits):
+            writer.write("Top {:03d}: {}\n".format(idx + 1, hit_score))
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config-file", required=True)
-    parser.add_argument("--index-path", default='indexes', required=True)
-    parser.add_argument(
-        "--qa-path", default='data/test/data.json', required=True)
-    parser.add_argument("--result-dir", default='results', required=True)
+    parser.add_argument("--index-path", required=True)
+    parser.add_argument("--qa-path", required=True)
+    parser.add_argument("--result-dir", required=True)
     parser.add_argument("--tokenizer-path", required=True)
+    parser.add_argument("--pretrained-model-path", required=True)
     parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--top-docs", type=int, default=1)
-    parser.add_argument("--debug", action='store_const',
-                        const=True, default=False)
-    parser.add_argument("--write-out-results",
-                        action='store_const', const=True, default=False)
+    parser.add_argument("--top-docs", type=int, default=10)
+    parser.add_argument("--max-query-length", type=int, required=True)
+    parser.add_argument("--checkpoint-path", required=True)
+    parser.add_argument("--architecture", required=True)
     args = parser.parse_args()
 
     # setup logger
@@ -174,13 +141,14 @@ def main():
     # setup environment
     setup_memory_growth()
 
-    config = DualEncoderConfig.from_json_file(args.config_file)
     qa_test_data = load_test_data(args.qa_path)
-    tokenizer_class = TOKENIZER_MAPPING[config.model_arch]
+    tokenizer_class = TOKENIZER_MAPPING[args.architecture]
     tokenizer = tokenizer_class.from_pretrained(args.tokenizer_path)
     indexer = DenseFlatIndexer()
     indexer.deserialize(args.index_path)
-    query_encoder = load_query_encoder(config)
+    query_encoder = load_query_encoder(
+        args.checkpoint_path, args.architecture, args.pretrained_model_path
+    )
 
     # evaluating
     evaluate(
@@ -189,10 +157,8 @@ def main():
         indexer=indexer,
         tokenizer=tokenizer,
         result_dir=args.result_dir,
-        query_max_seq_length=config.query_max_seq_length,
-        top_docs=args.top_docs,
-        debug=args.debug,
-        write_out_results=args.write_out_results
+        max_query_length=args.max_query_length,
+        top_docs=args.top_docs
     )
 
 
