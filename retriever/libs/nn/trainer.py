@@ -38,12 +38,14 @@ class DualEncoderTrainer(object):
         self.iterators = {k: iter(v) for k, v in self.datasets.items()}
 
     def train(self):
-        if self.config.train_mode == "hard":
+        if self.config.pipeline_config["train_mode"] == "hard":
             self.train_hard()
-        elif self.config.train_mode == "poshard":
+        elif self.config.pipeline_config["train_mode"] == "poshard":
             self.train_poshard()
-        elif self.config.train_mode == "pos":
+        elif self.config.pipeline_config["train_mode"] == "pos":
             self.train_pos()
+        elif self.config.pipeline_config["train_mode"] == "inbatch":
+            self.train_inbatch()
 
     def train_pos(self):
         trained_steps = self.optimizer.iterations.numpy()
@@ -200,6 +202,29 @@ class DualEncoderTrainer(object):
                 if global_step % self.config.save_checkpoint_freq == 0:
                     self.save_checkpoint()
             # hard pipelines />
+
+    def train_inbatch(self):
+        trained_steps = self.optimizer.iterations.numpy()
+        logger.info(
+            "************************ Start training ************************")
+        global_step = trained_steps
+        inbatch_loss = -1.0
+        start_time = time.perf_counter()
+        while global_step < self.config.num_train_steps:
+            inbatch_loss = self.accumulate_step(
+                iterator=self.iterators["inbatch_dataset"],
+                step_fn=self.inbatch_step_fn,
+                backward_accumulate_steps=self.config.pipeline_config["backward_accumulate_inbatch"]
+            )
+            global_step += 1
+            if global_step % self.config.logging_steps == 0:
+                logger.info("Step: {} || Inbatch loss: {} || Time elapsed: {}s".format(
+                    global_step, inbatch_loss, time.perf_counter() - start_time))
+                with self.summary_writer.as_default():
+                    tf.summary.scalar("Pos", inbatch_loss, step=global_step)
+                start_time = time.perf_counter()
+            if global_step % self.config.save_checkpoint_freq == 0:
+                self.save_checkpoint()
 
     def log(self, info):
         previous_info = info["previous"]
@@ -392,6 +417,39 @@ class DualEncoderTrainer(object):
                 },
                 sim_func=self.config.sim_score,
                 type="poshard",
+            )
+            loss = loss / self.strategy.num_replicas_in_sync
+
+        grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
+        ctx = ctx = tf.distribute.get_replica_context()
+        return {
+            "loss": loss,
+            "grads": ctx.all_reduce(tf.distribute.ReduceOp.SUM, grads)
+        }
+
+    @tf.function
+    def inbatch_step_fn(self, item):
+        query_input_ids = item["question/input_ids"]
+        query_attention_mask = item["question/attention_mask"]
+        positive_context_input_ids = item["positive_context/input_ids"]
+        positive_context_attention_mask = item["positive_context/attention_mask"]
+
+        with tf.GradientTape() as tape:
+            query_embedding, positive_context_embedding = self.dual_encoder(
+                query_input_ids=query_input_ids,
+                query_attention_mask=query_attention_mask,
+                context_input_ids=positive_context_input_ids,
+                context_attention_mask=positive_context_attention_mask,
+                training=True
+            )
+
+            loss = self.loss_calculator.compute(
+                inputs={
+                    "query_embedding": query_embedding,
+                    "positive_context_embedding": positive_context_embedding,
+                },
+                sim_func=self.config.sim_score,
+                type="inbatch",
             )
             loss = loss / self.strategy.num_replicas_in_sync
 

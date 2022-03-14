@@ -33,7 +33,6 @@ def main():
     # dual-encoder specific
     parser.add_argument("--model-name")
     parser.add_argument("--model-arch")
-    parser.add_argument("--train-mode", choices=["pos", "poshard", "hard"])
     parser.add_argument("--sim-score", choices=['cosine', 'dot_product'])
     # data
     parser.add_argument("--pipeline-config-file")
@@ -106,24 +105,17 @@ def main():
     logger.info("Creating dataset...")
     start_time = time.perf_counter()
     datasets = get_pipelines(config.pipeline_config)
-    dist_pos_dataset = strategy.distribute_datasets_from_function(
-        lambda _: datasets["pos_dataset"]
-    )
-    dist_hard_dataset = strategy.distribute_datasets_from_function(
-        lambda _: datasets["hard_dataset"]
-    )
-    dist_poshard_dataset = strategy.distribute_datasets_from_function(
-        lambda _: datasets["poshard_dataset"]
-    )
-    dist_datasets = {
-        "pos_dataset": dist_pos_dataset,
-        "hard_dataset": dist_hard_dataset,
-        "poshard_dataset": dist_poshard_dataset
-    }
-    if config.train_mode != "pos":
+    if config.pipeline_config["train_mode"] not in {"pos", "inbatch"}:
         regulate_factor = datasets["pos_dataset_size"] // datasets["poshard_dataset_size"]
+        datasets.pop("pos_dataset_size")
+        datasets.pop("poshard_dataset_size")
     else:
         regulate_factor = None
+    dist_datasets = {
+        k: strategy.distribute_datasets_from_function(
+            lambda _: datasets[k]
+        ) for k in datasets
+    }
     
     logger.info("Done creating dataset in {}s".format(
         time.perf_counter() - start_time))

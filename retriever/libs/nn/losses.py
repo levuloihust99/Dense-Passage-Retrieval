@@ -30,6 +30,11 @@ class LossCalculator(object):
                 hardneg_context_embedding=inputs["hardneg_context_embedding"],
                 hardneg_mask=inputs["hardneg_mask"]
             )
+        elif type == "inbatch":
+            return self.compute_inbatch(
+                query_embedding=inputs["query_embedding"],
+                positive_context_embedding=inputs["positive_context_embedding"]
+            )
         else:
             raise Exception("Type '{}' is not supported.".format(type))
     
@@ -76,5 +81,19 @@ class LossCalculator(object):
         )
         logits = tf.nn.log_softmax(sim_matrix_masked, axis=-1)
         loss = logits[:, 0]
+        loss = -tf.reduce_sum(loss) / batch_size
+        return loss
+
+    def compute_inbatch(
+        self,
+        query_embedding: tf.Tensor,
+        positive_context_embedding: tf.Tensor
+    ):
+        batch_size, hidden_size = query_embedding.shape.as_list()
+        similarity_matrix = tf.matmul(query_embedding, positive_context_embedding, transpose_b=True)
+        logits = tf.nn.log_softmax(similarity_matrix, axis=-1)
+        loss = tf.gather_nd(
+            logits, tf.where(tf.eye(batch_size, dtype=tf.bool))
+        )
         loss = -tf.reduce_sum(loss) / batch_size
         return loss
