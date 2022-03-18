@@ -101,7 +101,9 @@ class PosPipeline(Pipeline):
         }
 
     def build(self):
-        tfrecord_files = sorted(glob.glob(os.path.join(self.data_source, "*")))
+        tfrecord_files = sorted(tf.io.gfile.listdir(self.data_source))
+        tfrecord_files = [os.path.join(self.data_source, f)
+                          for f in tfrecord_files]
         dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
         dataset = dataset.interleave(
             lambda x: tf.data.TFRecordDataset(x),
@@ -251,7 +253,9 @@ class PosHardPipeline(Pipeline):
         }
 
     def build(self):
-        tfrecord_files = sorted(glob.glob(os.path.join(self.data_source, "*")))
+        tfrecord_files = sorted(tf.io.gfile.listdir(self.data_source))
+        tfrecord_files = [os.path.join(self.data_source, f)
+                          for f in tfrecord_files]
         dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
         dataset = dataset.interleave(
             lambda x: tf.data.TFRecordDataset(x),
@@ -422,8 +426,9 @@ class HardPipeline(Pipeline):
 
     def build(self):
         # < hard pipeline
-        tfrecord_files = sorted(
-            glob.glob(os.path.join(self.hard_data_source, "*")))
+        tfrecord_files = sorted(tf.io.gfile.listdir(self.hard_data_source))
+        tfrecord_files = [os.path.join(self.hard_data_source, f)
+                          for f in tfrecord_files]
         hard_dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
         hard_dataset = hard_dataset.interleave(
             lambda x: tf.data.TFRecordDataset(x),
@@ -459,8 +464,9 @@ class HardPipeline(Pipeline):
             # hard pipeline transformations />
 
         # < nonhard pipeline
-        tfrecord_files = sorted(
-            glob.glob(os.path.join(self.nonhard_data_source, "*")))
+        tfrecord_files = sorted(tf.io.gfile.listdir(self.nonhard_data_source))
+        tfrecord_files = [os.path.join(
+            self.nonhard_data_source, f) for f in tfrecord_files]
         nonhard_dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
         nonhard_dataset = nonhard_dataset.interleave(
             lambda x: tf.data.TFRecordDataset(x),
@@ -674,7 +680,9 @@ class InbatchPipeline(Pipeline):
         }
 
     def build(self):
-        tfrecord_files = sorted(glob.glob(os.path.join(self.data_source, "*")))
+        tfrecord_files = sorted(tf.io.gfile.listdir(self.data_source))
+        tfrecord_files = [os.path.join(self.data_source, f)
+                          for f in tfrecord_files]
         dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
         dataset = dataset.interleave(
             lambda x: tf.data.TFRecordDataset(x),
