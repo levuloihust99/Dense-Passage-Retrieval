@@ -59,9 +59,7 @@ def main():
     parser.add_argument("--gcp-project")
     # model name-specific params
     parser.add_argument("--checkpoint-dir")
-    parser.add_argument("--tensorboard-dir")
-    parser.add_argument("--log-file")
-    parser.add_argument("--config-file")
+    parser.add_argument("--log-dir")
     # json file param
     parser.add_argument("--hparams", default="{}")
 

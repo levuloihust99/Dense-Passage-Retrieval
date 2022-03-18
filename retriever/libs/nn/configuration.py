@@ -32,7 +32,7 @@ class DualEncoderConfig(CommonConfig):
         # dual-encoder-specific
         self.model_name = 'dual-encoder'
         self.model_arch = 'roberta'
-        self.sim_score = 'cosine'
+        self.sim_score = 'dot_product'
 
         # data pipeline
         self.pipeline_config_file = 'configs/pipeline_training_config.json'
@@ -65,7 +65,7 @@ class DualEncoderConfig(CommonConfig):
         self.gcp_project = None
 
         model_name_specific_params = {
-            'checkpoint_dir', 'tensorboard_dir', 'log_file', 'config_file'}
+            'checkpoint_dir', 'log_dir'}
         model_name_specific_kwargs = {}
         for param in model_name_specific_params:
             if param in kwargs:
@@ -85,9 +85,9 @@ class DualEncoderConfig(CommonConfig):
         # model_name-specific params
         self.checkpoint_dir = os.path.join(
             'checkpoints', self.model_name)
-        log_dir = os.path.join('logs', self.model_name)
-        self.tensorboard_dir = os.path.join(log_dir, 'tensorboard')
-        self.log_file = os.path.join(log_dir, 'track.log')
-        self.config_file = os.path.join(log_dir, 'config.json')
+        self.log_dir = os.path.join('logs', self.model_name)
 
         self.override_defaults(**model_name_specific_kwargs)
+
+        self.tensorboard_dir = os.path.join(self.log_dir, 'tensorboard')
+        self.config_file = os.path.join(self.log_dir, 'config.json')
