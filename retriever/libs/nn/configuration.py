@@ -89,5 +89,5 @@ class DualEncoderConfig(CommonConfig):
 
         self.override_defaults(**model_name_specific_kwargs)
 
-        self.tensorboard_dir = os.path.join(self.log_dir, 'tensorboard')
-        self.config_file = os.path.join(self.log_dir, 'config.json')
+        self.tensorboard_dir = os.path.join(self.log_dir, self.model_name, 'tensorboard')
+        self.config_file = os.path.join(self.log_dir, self.model_name, 'config.json')
