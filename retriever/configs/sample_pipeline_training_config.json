@@ -8,16 +8,19 @@
     "forward_batch_size_hardneg_neg": 16,
     "contrastive_size_hardneg_neg": 7,
     "backward_accumulate_hardneg_neg": 8,
+    "forward_batch_size_inbatch": 16,
+    "backward_accumulate_inbatch": 1,
     "limit_hardnegs": 20,
     "max_query_length": 64,
     "max_context_length": 256,
     "tokenizer_type": "roberta",
     "tokenizer_path": "vinai/phobert-base",
-    "pos_data_source": "data/v2/zalo/tfrecord/train/pos",
+    "pos_data_source": "data/v3/zalo_hard_evnspc_pos/tfrecord/pos",
     "hard_data_source": {
-        "onlyhard": "data/v2/zalo/tfrecord/train/hard/onlyhard",
-        "nonhard": "data/v2/zalo/tfrecord/train/hard/nonhard"
+        "onlyhard": "data/v3/zalo_hard_evnspc_pos/tfrecord/hard/onlyhard",
+        "nonhard": "data/v3/zalo_hard_evnspc_pos/tfrecord/hard/nonhard"
     },
-    "poshard_data_source": "data/v2/zalo/tfrecord/train/poshard",
-    "use_nonhard": false
+    "poshard_data_source": "data/v3/zalo_hard_evnspc_pos/tfrecord/poshard",
+    "use_nonhard": true,
+    "train_mode": "pos"
 }

@@ -78,7 +78,7 @@ class DualEncoderConfig(CommonConfig):
             assert self.save_checkpoint_freq == 'epoch', \
                 "Only `epoch` or integers are supported for `save_checkpoint_freq`. Current value: {}".format(
                     self.save_checkpoint_freq)
-        with open(self.pipeline_config_file, "r") as reader:
+        with tf.io.gfile.GFile(self.pipeline_config_file, "r") as reader:
             pipeline_config = json.load(reader)
         self.pipeline_config = pipeline_config
 
