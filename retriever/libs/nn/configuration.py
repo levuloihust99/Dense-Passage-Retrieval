@@ -89,5 +89,11 @@ class DualEncoderConfig(CommonConfig):
 
         self.override_defaults(**model_name_specific_kwargs)
 
-        self.tensorboard_dir = os.path.join(self.log_dir, self.model_name, 'tensorboard')
-        self.config_file = os.path.join(self.log_dir, self.model_name, 'config.json')
+        if 'log_dir' in model_name_specific_kwargs:
+            self.tensorboard_dir = os.path.join(self.log_dir, self.model_name, 'tensorboard')
+            self.config_file = os.path.join(self.log_dir, self.model_name, 'config.json')
+        else:
+            self.tensorboard_dir = os.path.join(self.log_dir, 'tensorboard')
+            self.config_file = os.path.join(self.log_dir, 'config.json')
+        if 'checkpoint_dir' in model_name_specific_kwargs:
+            self.checkpoint_dir = os.path.join(self.checkpoint_dir, self.model_name)

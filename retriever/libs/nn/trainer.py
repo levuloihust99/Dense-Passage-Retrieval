@@ -272,7 +272,7 @@ class DualEncoderTrainer(object):
                 tf.distribute.ReduceOp.SUM, per_replica_results["loss"], axis=None)
             accumulate_loss += loss
             grads = per_replica_results["grads"]
-            if not isinstance(self.strategy, tf.distribute.get_strategy().__class__):
+            if not isinstance(self.strategy, tf.distribute.get_strategy().__class__) and self.strategy.num_replicas_in_sync > 1:
                 grads = [grad.values[0] for grad in grads]
             if accumulate_grads is None:
                 accumulate_grads = [flat_gradients(grad) for grad in grads]
