@@ -30,11 +30,11 @@ def calculate_metrics(ground_truths, predictions):
 
         top_hits[best_hit:] = [v + 1 for v in top_hits[best_hit:]]
 
-        recall = true_positives / len(truth_ids)
+        recall = true_positives / len(truth["relevant_articles"])
         if len(pred) == 0:
             precision = 0
         else:
-            precision = true_positives / len(pred)
+            precision = true_positives / len(pred["relevant_articles"])
         if true_positives == 0:
             f1_score = 0
         else:
