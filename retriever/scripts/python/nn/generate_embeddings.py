@@ -76,7 +76,7 @@ def main():
     parser.add_argument("--config-file", required=True)
     args = parser.parse_args()
 
-    with open(args.config_file, "r") as reader:
+    with tf.io.gfile.GFile(args.config_file, "r") as reader:
         config = json.load(reader)
     config = argparse.Namespace(**config)
     
@@ -113,7 +113,7 @@ def main():
         )
     
     embeddings = generate_embeddings(context_encoder, dist_dataset, strategy)
-    with open(config.corpus_path, "r") as reader:
+    with tf.io.gfile.GFile(config.corpus_path, "r") as reader:
         corpus = json.load(reader)
     embeddings = embeddings[:len(corpus)]
     embeddings = [e.numpy() for e in embeddings]
