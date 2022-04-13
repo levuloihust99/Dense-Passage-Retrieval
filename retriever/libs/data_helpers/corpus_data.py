@@ -56,7 +56,9 @@ def load_corpus_dataset(
     data_source: Text,
     max_context_length: int
 ):
-    tfrecord_files = sorted(glob.glob(os.path.join(data_source, "*")))
+    tfrecord_files = tf.io.gfile.listdir(data_source)
+    tfrecord_files = [os.path.join(data_source, f) for f in tfrecord_files]
+    tfrecord_files = sorted(tfrecord_files)
     dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
     dataset = dataset.flat_map(
         lambda x: tf.data.TFRecordDataset(x),
