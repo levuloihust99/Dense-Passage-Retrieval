@@ -29,6 +29,8 @@ class CommonConfig(object):
 
 class DualEncoderConfig(CommonConfig):
     def __init__(self, **kwargs):
+        self.random_seed = None
+
         # dual-encoder-specific
         self.model_name = 'dual-encoder'
         self.model_arch = 'roberta'

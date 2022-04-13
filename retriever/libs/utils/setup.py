@@ -35,3 +35,8 @@ def setup_memory_growth():
     if gpu_devices:
         for gpu in gpu_devices:
             tf.config.experimental.set_memory_growth(gpu, True)
+
+
+def setup_random(seed):
+    if seed is not None:
+        tf.random.set_seed(seed)

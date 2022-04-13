@@ -12,7 +12,7 @@ from libs.nn.optimization import get_adamw
 from libs.nn.trainer import DualEncoderTrainer
 from libs.nn.losses import LossCalculator
 from libs.constants import TOKENIZER_MAPPING, MODEL_MAPPING
-from libs.utils.setup import setup_distribute_strategy, setup_memory_growth
+from libs.utils.setup import setup_distribute_strategy, setup_memory_growth, setup_random
 from libs.utils.logging import add_color_formater
 from libs.data_helpers.data_pipeline import get_pipelines
 
@@ -30,6 +30,8 @@ def override_defaults(hparams, args):
 def main():
     # argument parser
     parser = argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
+
+    parser.add_argument("--random-seed", type=int)
     # dual-encoder specific
     parser.add_argument("--model-name")
     parser.add_argument("--model-arch")
@@ -91,6 +93,7 @@ def main():
 
     # setup environment
     setup_memory_growth()
+    setup_random(config.random_seed)
     strategy = setup_distribute_strategy(
         use_tpu=config.use_tpu, tpu_name=config.tpu_name)
 
