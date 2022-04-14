@@ -616,12 +616,14 @@ class InbatchPipeline(Pipeline):
         max_query_length: int,
         max_context_length: int,
         forward_batch_size: int,
-        data_source: Text
+        data_source: Text,
+        deterministic: bool = False # for debug
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
         self.forward_batch_size = forward_batch_size
         self.data_source = data_source
+        self.deterministic = deterministic
         self.dataset_size = -1
 
         self.feature_description = {
@@ -684,10 +686,15 @@ class InbatchPipeline(Pipeline):
         tfrecord_files = [os.path.join(self.data_source, f)
                           for f in tfrecord_files]
         dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
-        dataset = dataset.interleave(
-            lambda x: tf.data.TFRecordDataset(x),
-            num_parallel_calls=tf.data.AUTOTUNE
-        )
+        if not self.deterministic:
+            dataset = dataset.interleave(
+                lambda x: tf.data.TFRecordDataset(x),
+                num_parallel_calls=tf.data.AUTOTUNE
+            )
+        else:
+            dataset = dataset.flat_map(
+                lambda x: tf.data.TFRecordDataset(x)
+            )
 
         # < calculate dataset size
         count = 0
@@ -699,8 +706,10 @@ class InbatchPipeline(Pipeline):
         dataset = dataset.map(
             self.parse_ex, num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.map(self.decode, num_parallel_calls=tf.data.AUTOTUNE)
-        dataset = dataset.shuffle(buffer_size=10000).repeat()
         dataset = dataset.map(self.sample, num_parallel_calls=tf.data.AUTOTUNE)
+        if not self.deterministic:
+            dataset = dataset.shuffle(buffer_size=10000)
+        dataset = dataset.repeat()
         dataset = dataset.batch(self.forward_batch_size)
         return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
@@ -781,7 +790,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
         max_query_length=pipeline_config["max_query_length"],
         max_context_length=pipeline_config["max_context_length"],
         forward_batch_size=pipeline_config["forward_batch_size_inbatch"],
-        data_source=pipeline_config["pos_data_source"]
+        data_source=pipeline_config["pos_data_source"],
+        deterministic=pipeline_config["deterministic"]["inbatch"]
     )
     poshard_pipeline = PosHardPipeline(
         max_query_length=pipeline_config["max_query_length"],
