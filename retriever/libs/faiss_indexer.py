@@ -7,6 +7,7 @@ import logging
 import numpy as np
 import os
 import pickle
+import tensorflow as tf
 
 from typing import List, Tuple, Dict, Text
 
@@ -31,43 +32,47 @@ class DenseIndexer(object):
     def search_knn(self, query_vectors: np.array, top_docs: int) -> List[Tuple[List[Dict], List[float]]]:
         raise NotImplementedError
 
-    def serialize(self, file: Text):
-        logger.info("Serializing index to {}...".format(file))
+    def serialize(self, path: Text):
+        logger.info("Serializing index to {}...".format(path))
 
-        if os.path.isdir(file):
-            index_file = os.path.join(file, "index.dpr")
-            meta_file = os.path.join(file, "index_meta.dpr")
+        if tf.io.gfile.isdir(path):
+            index_path = os.path.join(path, "index.dpr")
+            meta_path = os.path.join(path, "index_meta.dpr")
         else:
-            index_file = file + ".{}.dpr".format(self.get_index_name())
-            meta_file = file + ".{}_meta.dpr".format(self.get_index_name())
+            index_path = path + ".{}.dpr".format(self.get_index_name())
+            meta_path = path + ".{}_meta.dpr".format(self.get_index_name())
 
-        faiss.write_index(self.index, index_file)
-        with open(meta_file, mode="wb") as f:
-            pickle.dump(self.meta, f)
+        with tf.io.gfile.GFile(index_path, "wb") as write_stream:
+            faiss_wrapper_write_stream = faiss.PyCallbackIOWriter(write_stream.write)
+            faiss.write_index(self.index, faiss_wrapper_write_stream)
+        with tf.io.gfile.GFile(meta_path, "wb") as write_stream:
+            pickle.dump(self.meta, write_stream)
 
     def get_files(self, path: Text):
-        if os.path.isdir(path):
-            index_file = os.path.join(path, "index.dpr")
-            meta_file = os.path.join(path, "index_meta.dpr")
+        if tf.io.gfile.isdir(path):
+            index_path = os.path.join(path, "index.dpr")
+            meta_path = os.path.join(path, "index_meta.dpr")
         else:
-            index_file = path + ".{}.dpr".format(self.get_index_name())
-            meta_file = path + ".{}_meta.dpr".format(self.get_index_name())
-        return index_file, meta_file
+            index_path = path + ".{}.dpr".format(self.get_index_name())
+            meta_path = path + ".{}_meta.dpr".format(self.get_index_name())
+        return index_path, meta_path
 
     def index_exists(self, path: str):
-        index_file, meta_file = self.get_files(path)
-        return os.path.isfile(index_file) and os.path.isfile(meta_file)
+        index_path, meta_path = self.get_files(path)
+        return tf.io.gfile.exists(index_path) and tf.io.gfile.exists(meta_path)
 
     def deserialize(self, path: Text):
         logger.info("Loading index from {}...".format(path))
-        index_file, meta_file = self.get_files(path)
+        index_path, meta_path = self.get_files(path)
 
-        self.index = faiss.read_index(index_file)
+        with tf.io.gfile.GFile(index_path, "rb") as read_stream:
+            faiss_wrapper_read_stream = faiss.PyCallbackIOReader(read_stream.read)
+            self.index = faiss.read_index(faiss_wrapper_read_stream)
         logger.info("Loaded index of type `%s` and size %d",
                     type(self.index), self.index.ntotal)
 
-        with open(meta_file, "rb") as reader:
-            self.meta = pickle.load(reader)
+        with tf.io.gfile.GFile(meta_path, "rb") as read_stream:
+            self.meta = pickle.load(read_stream)
         assert (
             len(self.meta) == self.index.ntotal
         ), "Deserialized meta should match faiss index size"
