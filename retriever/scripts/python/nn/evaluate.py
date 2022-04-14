@@ -111,6 +111,8 @@ def evaluate(
     recall = metrics['recall']
     f1_score = metrics['f1_score']
     top_hits = metrics['top_hits']
+    if not tf.io.gfile.exists(result_dir):
+        tf.io.gfile.makedirs(result_dir)
     metric_file = os.path.join(result_dir, 'metrics.txt')
     with tf.io.gfile.GFile(metric_file, 'w') as writer:
         writer.write("Precision\t= {}\n".format(precision))
