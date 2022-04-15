@@ -169,7 +169,6 @@ class PosHardPipeline(Pipeline):
             "positive_context/attention_mask": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
             "hardneg_context/input_ids": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
             "hardneg_context/attention_mask": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
-            "hardneg_mask": tf.io.FixedLenFeature(shape=[self.contrastive_size], dtype=tf.int64),
             "num_hardneg": tf.io.FixedLenFeature(shape=[], dtype=tf.int64)
         }
         self.dataset_size = -1
@@ -190,6 +189,13 @@ class PosHardPipeline(Pipeline):
             item["hardneg_context/input_ids"], out_type=tf.int32)
         hardneg_contexts_attention_mask = tf.io.parse_tensor(
             item["hardneg_context/attention_mask"], out_type=tf.int32)
+
+        hardneg_mask = tf.cond(
+            item["num_hardneg"] >= self.contrastive_size,
+            lambda: tf.ones(self.contrastive_size, dtype=tf.int32),
+            lambda: tf.concat([tf.ones(item["num_hardneg"], dtype=tf.int32), tf.zeros(self.contrastive_size - item["num_hardneg"], dtype=tf.int32)], axis=0)
+        )
+
         return {
             "sample_id": item["sample_id"],
             "question/input_ids": tf.reshape(
@@ -204,7 +210,7 @@ class PosHardPipeline(Pipeline):
                 hardneg_contexts_input_ids, [-1, self.max_context_length]),
             "hardneg_context/attention_mask": tf.reshape(
                 hardneg_contexts_attention_mask, [-1, self.max_context_length]),
-            "hardneg_mask": item["hardneg_mask"],
+            "hardneg_mask": hardneg_mask,
             "num_hardneg": item["num_hardneg"]
         }
 
