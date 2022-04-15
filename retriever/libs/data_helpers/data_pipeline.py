@@ -18,13 +18,15 @@ class PosPipeline(Pipeline):
         max_context_length: int,
         forward_batch_size: int,
         contrastive_size: int,
-        data_source: Text
+        data_source: Text,
+        deterministic: bool = False
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
         self.forward_batch_size = forward_batch_size
         self.contrastive_size = contrastive_size
         self.data_source = data_source
+        self.deterministic = deterministic
         self.dataset_size = -1
 
         self.feature_description = {
@@ -105,10 +107,13 @@ class PosPipeline(Pipeline):
         tfrecord_files = [os.path.join(self.data_source, f)
                           for f in tfrecord_files]
         dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
-        dataset = dataset.interleave(
-            lambda x: tf.data.TFRecordDataset(x),
-            num_parallel_calls=tf.data.AUTOTUNE
-        )
+        if not self.deterministic:
+            dataset = dataset.interleave(
+                lambda x: tf.data.TFRecordDataset(x),
+                num_parallel_calls=tf.data.AUTOTUNE
+            )
+        else:
+            dataset = dataset.flat_map(lambda x: tf.data.TFRecordDataset(x))
 
         # < calculate dataset size
         count = 0
@@ -120,8 +125,10 @@ class PosPipeline(Pipeline):
         dataset = dataset.map(
             self.parse_ex, num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.map(self.decode, num_parallel_calls=tf.data.AUTOTUNE)
-        dataset = dataset.shuffle(buffer_size=10000).repeat()
         dataset = dataset.map(self.sample, num_parallel_calls=tf.data.AUTOTUNE)
+        if not self.deterministic:
+            dataset = dataset.shuffle(buffer_size=10000)
+        dataset = dataset.repeat()
         dataset = dataset.window(
             self.forward_batch_size + self.contrastive_size,
             shift=self.forward_batch_size
@@ -143,7 +150,8 @@ class PosHardPipeline(Pipeline):
         forward_batch_size: int,
         contrastive_size: int,
         limit_hardnegs: int,
-        data_source: Text
+        data_source: Text,
+        deterministic: bool = False
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
@@ -151,6 +159,7 @@ class PosHardPipeline(Pipeline):
         self.contrastive_size = contrastive_size
         self.data_source = data_source
         self.limit_hardnegs = limit_hardnegs
+        self.deterministic = deterministic
 
         self.feature_description = {
             "sample_id": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
@@ -257,10 +266,13 @@ class PosHardPipeline(Pipeline):
         tfrecord_files = [os.path.join(self.data_source, f)
                           for f in tfrecord_files]
         dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
-        dataset = dataset.interleave(
-            lambda x: tf.data.TFRecordDataset(x),
-            num_parallel_calls=tf.data.AUTOTUNE,
-        )
+        if not self.deterministic:
+            dataset = dataset.interleave(
+                lambda x: tf.data.TFRecordDataset(x),
+                num_parallel_calls=tf.data.AUTOTUNE,
+            )
+        else:
+            dataset = dataset.flat_map(lambda x: tf.data.TFRecordDataset(x))
 
         # < calculate dataset size
         count = 0
@@ -272,9 +284,11 @@ class PosHardPipeline(Pipeline):
         dataset = dataset.map(
             self.parse_ex, num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.map(self.decode, num_parallel_calls=tf.data.AUTOTUNE)
-        dataset = dataset.shuffle(buffer_size=10000).repeat()
         dataset = dataset.map(self.sample_and_pad,
                               num_parallel_calls=tf.data.AUTOTUNE)
+        if not self.deterministic:
+            dataset = dataset.shuffle(buffer_size=10000)
+        dataset = dataset.repeat()
         dataset = dataset.batch(self.forward_batch_size)
         return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
@@ -291,6 +305,7 @@ class HardPipeline(Pipeline):
         nonhard_data_source: Text,
         max_samplings: int = 100,
         use_nonhard: bool = True,
+        deterministic: bool = False
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
@@ -299,6 +314,7 @@ class HardPipeline(Pipeline):
         self.limit_hardnegs = limit_hardnegs
         self.hard_data_source = hard_data_source
         self.nonhard_data_source = nonhard_data_source
+        self.deterministic = deterministic
 
         self.hard_feature_description = {
             "sample_id": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
@@ -430,10 +446,13 @@ class HardPipeline(Pipeline):
         tfrecord_files = [os.path.join(self.hard_data_source, f)
                           for f in tfrecord_files]
         hard_dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
-        hard_dataset = hard_dataset.interleave(
-            lambda x: tf.data.TFRecordDataset(x),
-            num_parallel_calls=tf.data.AUTOTUNE
-        )
+        if not self.deterministic:
+            hard_dataset = hard_dataset.interleave(
+                lambda x: tf.data.TFRecordDataset(x),
+                num_parallel_calls=tf.data.AUTOTUNE
+            )
+        else:
+            hard_dataset = hard_dataset.flat_map(lambda x: tf.data.TFRecordDataset(x))
         # < dataset size
         count = 0
         for item in hard_dataset:
@@ -448,9 +467,11 @@ class HardPipeline(Pipeline):
                 self.parse_ex_hard, num_parallel_calls=tf.data.AUTOTUNE)
             hard_dataset = hard_dataset.map(
                 self.decode_hard, num_parallel_calls=tf.data.AUTOTUNE)
-            hard_dataset = hard_dataset.shuffle(buffer_size=10000).repeat()
             hard_dataset = hard_dataset.map(
                 self.sample_hard, num_parallel_calls=tf.data.AUTOTUNE)
+            if not self.deterministic:
+                hard_dataset = hard_dataset.shuffle(buffer_size=10000)
+            hard_dataset = hard_dataset.repeat()
             hard_dataset = hard_dataset.window(
                 self.forward_batch_size + self.contrastive_size, shift=self.forward_batch_size
             )
@@ -468,10 +489,13 @@ class HardPipeline(Pipeline):
         tfrecord_files = [os.path.join(
             self.nonhard_data_source, f) for f in tfrecord_files]
         nonhard_dataset = tf.data.Dataset.from_tensor_slices(tfrecord_files)
-        nonhard_dataset = nonhard_dataset.interleave(
-            lambda x: tf.data.TFRecordDataset(x),
-            num_parallel_calls=tf.data.AUTOTUNE
-        )
+        if not self.deterministic:
+            nonhard_dataset = nonhard_dataset.interleave(
+                lambda x: tf.data.TFRecordDataset(x),
+                num_parallel_calls=tf.data.AUTOTUNE
+            )
+        else:
+            nonhard_dataset = nonhard_dataset.flat_map(lambda x: tf.data.TFRecordDataset(x))
         # < dataset size
         count = 0
         for item in nonhard_dataset:
@@ -518,9 +542,11 @@ class HardPipeline(Pipeline):
             self.parse_ex_hard, num_parallel_calls=tf.data.AUTOTUNE)
         hard_dataset = hard_dataset.map(
             self.decode_hard, num_parallel_calls=tf.data.AUTOTUNE)
-        hard_dataset = hard_dataset.shuffle(buffer_size=10000).repeat()
         hard_dataset = hard_dataset.map(
             self.sample_hard, num_parallel_calls=tf.data.AUTOTUNE)
+        if not self.deterministic:
+            hard_dataset = hard_dataset.shuffle(buffer_size=10000)
+        hard_dataset = hard_dataset.repeat()
         hard_dataset = hard_dataset.window(
             self.forward_batch_size + sample_from_hard, shift=window_shift)
         hard_dataset = hard_dataset.flat_map(lambda x: tf.data.Dataset.zip(x))
@@ -533,9 +559,11 @@ class HardPipeline(Pipeline):
             self.parse_ex_nonhard, num_parallel_calls=tf.data.AUTOTUNE)
         nonhard_dataset = nonhard_dataset.map(
             self.decode_nonhard, num_parallel_calls=tf.data.AUTOTUNE)
-        nonhard_dataset = nonhard_dataset.shuffle(buffer_size=10000).repeat()
         nonhard_dataset = nonhard_dataset.map(
             self.sample_nonhard, num_parallel_calls=tf.data.AUTOTUNE)
+        if not self.deterministic:
+            nonhard_dataset = nonhard_dataset.shuffle(buffer_size=10000)
+        nonhard_dataset = nonhard_dataset.repeat()
         nonhard_dataset = nonhard_dataset.batch(sample_from_nonhard)
         # nonhard pipeline transformations />
 
@@ -784,7 +812,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
         max_context_length=pipeline_config["max_context_length"],
         forward_batch_size=pipeline_config["forward_batch_size_pos_neg"],
         contrastive_size=pipeline_config["contrastive_size_pos_neg"],
-        data_source=pipeline_config["pos_data_source"]
+        data_source=pipeline_config["pos_data_source"],
+        deterministic=pipeline_config["deterministic"]["pos"]
     )
     inbatch_pipeline = InbatchPipeline(
         max_query_length=pipeline_config["max_query_length"],
@@ -799,7 +828,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
         forward_batch_size=pipeline_config["forward_batch_size_pos_hardneg"],
         contrastive_size=pipeline_config["contrastive_size_pos_hardneg"],
         limit_hardnegs=pipeline_config["limit_hardnegs"],
-        data_source=pipeline_config["poshard_data_source"]
+        data_source=pipeline_config["poshard_data_source"],
+        deterministic=pipeline_config["deterministic"]["poshard"]
     )
     hard_pipeline = HardPipeline(
         max_query_length=pipeline_config["max_query_length"],
@@ -809,7 +839,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
         limit_hardnegs=pipeline_config["limit_hardnegs"],
         hard_data_source=pipeline_config["hard_data_source"]["onlyhard"],
         nonhard_data_source=pipeline_config["hard_data_source"]["nonhard"],
-        use_nonhard=pipeline_config["use_nonhard"]
+        use_nonhard=pipeline_config["use_nonhard"],
+        deterministic=pipeline_config["deterministic"]["hard"]
     )
     if pipeline_config["train_mode"] == "pos":
         pos_dataset = pos_pipeline.build()

@@ -146,7 +146,7 @@ def create_poshard_example(
     hardneg_contexts_feature = create_feature(hardneg_contexts_tokenized)
 
     # hard negative masking
-    hardneg_mask = [1] * (1 + len(item["hardneg_contexts"]))
+    hardneg_mask = [1] * len(item["hardneg_contexts"])
     hardneg_mask = hardneg_mask[:contrastive_size]
     pad_length = contrastive_size - len(hardneg_mask)
     hardneg_mask = hardneg_mask + [0] * pad_length
