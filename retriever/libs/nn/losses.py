@@ -7,7 +7,8 @@ class LossCalculator(object):
         self,
         inputs: Dict[Text, tf.Tensor],
         sim_func: Literal["cosine", "dot_product"],
-        type: Literal["pos", "hard", "poshard"]
+        type: Literal["pos", "hard", "poshard"],
+        padding_mask: tf.Tensor
     ):
         if sim_func == "cosine":
             inputs = {k: self.normalize(v) for k, v in inputs.items()}
@@ -15,25 +16,29 @@ class LossCalculator(object):
             return self.compute_contrastive_neg(
                 query_embedding=inputs["query_embedding"],
                 context_embedding=inputs["positive_context_embedding"],
-                negative_context_embedding=inputs["negative_context_embedding"]
+                negative_context_embedding=inputs["negative_context_embedding"],
+                padding_mask=padding_mask
             )
         elif type == "hard":
             return self.compute_contrastive_neg(
                 query_embedding=inputs["query_embedding"],
                 context_embedding=inputs["hardneg_context_embedding"],
-                negative_context_embedding=inputs["negative_context_embedding"]
+                negative_context_embedding=inputs["negative_context_embedding"],
+                padding_mask=padding_mask
             )
         elif type == "poshard":
             return self.compute_contrastive_hardneg(
                 query_embedding=inputs["query_embedding"],
                 positive_context_embedding=inputs["positive_context_embedding"],
                 hardneg_context_embedding=inputs["hardneg_context_embedding"],
-                hardneg_mask=inputs["hardneg_mask"]
+                hardneg_mask=inputs["hardneg_mask"],
+                padding_mask=padding_mask
             )
         elif type == "inbatch":
             return self.compute_inbatch(
                 query_embedding=inputs["query_embedding"],
-                positive_context_embedding=inputs["positive_context_embedding"]
+                positive_context_embedding=inputs["positive_context_embedding"],
+                padding_mask=padding_mask
             )
         else:
             raise Exception("Type '{}' is not supported.".format(type))
@@ -45,9 +50,9 @@ class LossCalculator(object):
         self,
         query_embedding: tf.Tensor,
         context_embedding: tf.Tensor,
-        negative_context_embedding: tf.Tensor
+        negative_context_embedding: tf.Tensor,
+        padding_mask: tf.Tensor
     ):
-        batch_size, hidden_dim = query_embedding.shape.as_list()
         positive_sim_scores = tf.reduce_sum(query_embedding * context_embedding, axis=-1, keepdims=True)
         negative_sim_scores = tf.matmul(query_embedding, negative_context_embedding, transpose_b=True)
         sim_matrix = tf.concat(
@@ -55,8 +60,8 @@ class LossCalculator(object):
             axis=-1
         )
         logits = tf.nn.log_softmax(sim_matrix, axis=-1)
-        loss = logits[:, 0]
-        loss = -tf.reduce_sum(loss) / batch_size
+        loss = logits[:, 0] * padding_mask
+        loss = -tf.reduce_sum(loss) / tf.reduce_sum(padding_mask)
         return loss
 
     def compute_contrastive_hardneg(
@@ -64,9 +69,9 @@ class LossCalculator(object):
         query_embedding: tf.Tensor,
         positive_context_embedding: tf.Tensor,
         hardneg_context_embedding: tf.Tensor,
-        hardneg_mask: tf.Tensor
+        hardneg_mask: tf.Tensor,
+        padding_mask: tf.Tensor
     ):
-        batch_size, hidden_dim = query_embedding.shape.as_list()
         positive_sim_scores = tf.reduce_sum(query_embedding * positive_context_embedding, axis=-1, keepdims=True)
         hardneg_sim_scores = tf.reduce_sum(tf.expand_dims(query_embedding, axis=1) * hardneg_context_embedding, axis=-1)
         sim_matrix = tf.concat(
@@ -80,14 +85,15 @@ class LossCalculator(object):
             sim_matrix, mask_matrix
         )
         logits = tf.nn.log_softmax(sim_matrix_masked, axis=-1)
-        loss = logits[:, 0]
-        loss = -tf.reduce_sum(loss) / batch_size
+        loss = logits[:, 0] * padding_mask
+        loss = -tf.reduce_sum(loss) / tf.reduce_sum(padding_mask)
         return loss
 
     def compute_inbatch(
         self,
         query_embedding: tf.Tensor,
-        positive_context_embedding: tf.Tensor
+        positive_context_embedding: tf.Tensor,
+        padding_mask: tf.Tensor
     ):
         batch_size, hidden_size = query_embedding.shape.as_list()
         similarity_matrix = tf.matmul(query_embedding, positive_context_embedding, transpose_b=True)
@@ -95,5 +101,6 @@ class LossCalculator(object):
         loss = tf.gather_nd(
             logits, tf.where(tf.eye(batch_size, dtype=tf.bool))
         )
-        loss = -tf.reduce_sum(loss) / batch_size
+        loss = loss * padding_mask
+        loss = -tf.reduce_sum(loss) / tf.reduce_sum(padding_mask)
         return loss
