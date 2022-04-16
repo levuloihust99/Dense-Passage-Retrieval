@@ -127,9 +127,9 @@ def main():
         logger.info("Instantiate dual encoder...")
         encoder_class = MODEL_MAPPING[config.model_arch]
         query_encoder = encoder_class.from_pretrained(
-            config.pretrained_model_path)
+            config.pretrained_model_path, name='query_encoder')
         context_encoder = encoder_class.from_pretrained(
-            config.pretrained_model_path)
+            config.pretrained_model_path, name='context_encoder')
         if config.model_arch == "roberta":
             query_encoder.roberta.pooler.trainable = False
             context_encoder.roberta.pooler.trainable = False

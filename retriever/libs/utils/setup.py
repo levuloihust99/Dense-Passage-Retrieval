@@ -16,7 +16,7 @@ def setup_distribute_strategy(use_tpu=False, tpu_name=''):
 
     if use_gpu: # detect GPUs
         devices = tf.config.list_physical_devices("GPU")
-        if devices:
+        if len(devices) > 1:
             use_default_strategy = False
             strategy = tf.distribute.MirroredStrategy()
         else:
