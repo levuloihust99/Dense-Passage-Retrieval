@@ -451,7 +451,6 @@ class DualEncoderTrainer(object):
                 },
                 sim_func=self.config.sim_score,
                 type="pos",
-                padding_mask=tf.ones(tf.shape(query_embedding)[0]),
                 duplicate_mask=item["duplicate_mask"]
             )
             loss = loss / self.strategy.num_replicas_in_sync
@@ -489,7 +488,6 @@ class DualEncoderTrainer(object):
                 },
                 sim_func=self.config.sim_score,
                 type="hard",
-                padding_mask=tf.ones(tf.shape(query_embedding)[0]),
                 duplicate_mask=item["duplicate_mask"]
             )
             loss = loss / self.strategy.num_replicas_in_sync
@@ -554,7 +552,6 @@ class DualEncoderTrainer(object):
                 },
                 sim_func=self.config.sim_score,
                 type="poshard",
-                padding_mask=tf.ones(tf.shape(query_embedding)[0])
             )
             loss = loss / self.strategy.num_replicas_in_sync
 
@@ -589,7 +586,6 @@ class DualEncoderTrainer(object):
                 },
                 sim_func=self.config.sim_score,
                 type="inbatch",
-                padding_mask=tf.ones(tf.shape(query_embedding)[0]),
                 duplicate_mask=duplicate_mask
             )
             loss = loss / self.strategy.num_replicas_in_sync
@@ -634,33 +630,37 @@ class DualEncoderTrainer(object):
 
         # backward from loss to embeddings
         query_batch_size = query_input_ids.shape.as_list()[0]
-        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
-        padding = query_multiplier * query_sub_batch_size - query_batch_size
-        padding_mask = tf.concat(
-            [
-                tf.ones(query_batch_size),
-                tf.zeros(padding)
-            ],
-            axis=0
-        )
+        positive_context_batch_size = positive_context_input_ids.shape.as_list()[0]
         loss, embedding_grads = self.embedding_backward_inbatch(
-            query_embedding=query_embedding_tensor,
-            context_embedding=positive_context_embedding_tensor,
-            padding_mask=padding_mask,
+            query_embedding=query_embedding_tensor[:query_batch_size],
+            context_embedding=positive_context_embedding_tensor[:positive_context_batch_size],
             duplicate_mask=duplicate_mask
         )
 
         # backward from embeddings to parameters
+        query_embedding_grads = embedding_grads["query"]
+        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
+        query_padding = query_multiplier * query_sub_batch_size - query_batch_size
+        query_embedding_grads_padded = tf.pad(
+            query_embedding_grads, [[0, query_padding], [0, 0]]
+        )
         query_grads = self.params_backward(
             query_input_ids_3d,
             query_attention_mask_3d,
-            gradient_cache=embedding_grads["query"],
+            gradient_cache=query_embedding_grads_padded,
             is_query_encoder=True
+        )
+
+        positive_context_embedding_grads = embedding_grads["context"]
+        positive_context_multiplier = (positive_context_batch_size - 1) // context_sub_batch_size + 1
+        positive_context_padding = positive_context_multiplier * context_sub_batch_size - positive_context_batch_size
+        positive_context_embedding_grads_padded = tf.pad(
+            positive_context_embedding_grads, [[0, positive_context_padding], [0, 0]]
         )
         context_grads = self.params_backward(
             positive_context_input_ids_3d,
             positive_context_attention_mask_3d,
-            gradient_cache=embedding_grads["context"],
+            gradient_cache=positive_context_embedding_grads_padded,
             is_query_encoder=False
         )
         grads = query_grads + context_grads # concatenate list
@@ -676,7 +676,6 @@ class DualEncoderTrainer(object):
         self,
         query_embedding: tf.Tensor,
         context_embedding: tf.Tensor,
-        padding_mask: tf.Tensor,
         duplicate_mask: tf.Tensor
     ):
         with tf.GradientTape() as tape:
@@ -689,7 +688,6 @@ class DualEncoderTrainer(object):
                 },
                 sim_func=self.config.sim_score,
                 type="inbatch",
-                padding_mask=padding_mask,
                 duplicate_mask=duplicate_mask
             )
             loss = loss / self.strategy.num_replicas_in_sync
@@ -750,40 +748,55 @@ class DualEncoderTrainer(object):
 
         # backward from loss to embeddings
         query_batch_size = query_input_ids.shape.as_list()[0]
-        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
-        padding = query_multiplier * query_sub_batch_size - query_batch_size
-        padding_mask = tf.concat(
-            [
-                tf.ones(query_batch_size),
-                tf.zeros(padding)
-            ],
-            axis=0
-        )
+        positive_context_batch_size = positive_context_input_ids.shape.as_list()[0]
+        negative_context_batch_size = negative_context_input_ids.shape.as_list()[0]
         loss, embedding_grads = self.embedding_backward_pos(
-            query_embedding=query_embedding_tensor,
-            positive_context_embedding=positive_context_embedding_tensor,
-            negative_context_embedding=negative_context_embedding_tensor,
-            padding_mask=padding_mask,
+            query_embedding=query_embedding_tensor[:query_batch_size],
+            positive_context_embedding=positive_context_embedding_tensor[:positive_context_batch_size],
+            negative_context_embedding=negative_context_embedding_tensor[:negative_context_batch_size],
             duplicate_mask=duplicate_mask
         )
 
-        # backward from embeddings to parameters
+        # backward from embeddings to parameters]
+        query_embedding_grads = embedding_grads["query"]
+        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
+        query_padding = query_multiplier * query_sub_batch_size - query_batch_size
+        query_embedding_grads_padded = tf.pad(
+            query_embedding_grads,
+            [[0, query_padding], [0, 0]]
+        )
         query_grads = self.params_backward(
             query_input_ids_3d,
             query_attention_mask_3d,
-            gradient_cache=embedding_grads["query"],
+            gradient_cache=query_embedding_grads_padded,
             is_query_encoder=True
+        )
+
+        positive_context_embedding_grads = embedding_grads["positive_context"]
+        positive_context_multiplier = (positive_context_batch_size - 1) // context_sub_batch_size + 1
+        positive_context_padding = positive_context_multiplier * context_sub_batch_size - positive_context_batch_size
+        positive_context_embedding_grads_padded = tf.pad(
+            positive_context_embedding_grads,
+            [[0, positive_context_padding], [0, 0]]
         )
         positive_context_grads = self.params_backward(
             positive_context_input_ids_3d,
             positive_context_attention_mask_3d,
-            gradient_cache=embedding_grads["positive_context"],
+            gradient_cache=positive_context_embedding_grads_padded,
             is_query_encoder=False
+        )
+
+        negative_context_embedding_grads = embedding_grads["negative_context"]
+        negative_context_multiplier = (negative_context_batch_size - 1) // context_sub_batch_size + 1
+        negative_context_padding = negative_context_multiplier * context_sub_batch_size - negative_context_batch_size
+        negative_context_embedding_grads_padded = tf.pad(
+            negative_context_embedding_grads,
+            [[0, negative_context_padding], [0, 0]]
         )
         negative_context_grads = self.params_backward(
             negative_context_input_ids_3d,
             negative_context_attention_mask_3d,
-            gradient_cache=embedding_grads["positive_context"],
+            gradient_cache=negative_context_embedding_grads_padded,
             is_query_encoder=False
         )
 
@@ -803,7 +816,6 @@ class DualEncoderTrainer(object):
         query_embedding: tf.Tensor,
         positive_context_embedding: tf.Tensor,
         negative_context_embedding: tf.Tensor,
-        padding_mask: tf.Tensor,
         duplicate_mask: tf.Tensor
     ):
         with tf.GradientTape() as tape:
@@ -818,7 +830,6 @@ class DualEncoderTrainer(object):
                 },
                 sim_func=self.config.sim_score,
                 type="pos",
-                padding_mask=padding_mask,
                 duplicate_mask=duplicate_mask
             )
             loss = loss / self.strategy.num_replicas_in_sync
@@ -879,8 +890,9 @@ class DualEncoderTrainer(object):
                     sub_batch_size=context_sub_batch_size,
                     is_query_encoder=False
                 )
+        hardneg_context_batch_size = hardneg_context_input_ids.shape.as_list()[0]
         hardneg_context_embedding_tensor_3d = tf.reshape(
-            hardneg_context_embedding_tensor,
+            hardneg_context_embedding_tensor[:hardneg_context_batch_size],
             [
                 self.config.pipeline_config["forward_batch_size_pos_hardneg"],
                 self.config.pipeline_config["contrastive_size_pos_hardneg"],
@@ -890,43 +902,57 @@ class DualEncoderTrainer(object):
 
         # backward from loss to embeddings
         query_batch_size = query_input_ids.shape.as_list()[0]
-        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
-        padding = query_multiplier * query_sub_batch_size - query_batch_size
-        padding_mask = tf.concat(
-            [
-                tf.ones(query_batch_size),
-                tf.zeros(padding)
-            ],
-            axis=0
-        )
+        positive_context_batch_size = positive_context_input_ids.shape.as_list()[0]
         loss, embedding_grads = self.embedding_backward_poshard(
-            query_embedding=query_embedding_tensor,
-            positive_context_embedding=positive_context_embedding_tensor,
+            query_embedding=query_embedding_tensor[:query_batch_size],
+            positive_context_embedding=positive_context_embedding_tensor[:positive_context_batch_size],
             hardneg_context_embedding=hardneg_context_embedding_tensor_3d,
-            hardneg_mask=hardneg_mask,
-            padding_mask=padding_mask
+            hardneg_mask=hardneg_mask
         )
 
         # backward from embeddings to parameters
+        query_embedding_grads = embedding_grads["query"]
+        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
+        query_padding = query_multiplier * query_sub_batch_size - query_batch_size
+        query_embedding_grads_padded = tf.pad(
+            query_embedding_grads, [[0, query_padding], [0, 0]]
+        )
         query_grads = self.params_backward(
             query_input_ids_3d,
             query_attention_mask_3d,
-            gradient_cache=embedding_grads["query"],
+            gradient_cache=query_embedding_grads_padded,
             is_query_encoder=True
+        )
+
+        positive_context_embedding_grads = embedding_grads["positive_context"]
+        positive_context_multiplier = (positive_context_batch_size - 1) // context_sub_batch_size + 1
+        positive_context_padding = positive_context_multiplier * context_sub_batch_size - positive_context_batch_size
+        positive_context_embedding_grads_padded = tf.pad(
+            positive_context_embedding_grads,
+            [[0, positive_context_padding], [0, 0]]
         )
         positive_context_grads = self.params_backward(
             positive_context_input_ids_3d,
             positive_context_attention_mask_3d,
-            gradient_cache=embedding_grads["positive_context"],
+            gradient_cache=positive_context_embedding_grads_padded,
             is_query_encoder=False
+        )
+
+        hardneg_context_embedding_grads = embedding_grads["hardneg_context"]
+        hardneg_context_multiplier = (hardneg_context_batch_size - 1) // context_sub_batch_size + 1
+        hardneg_context_padding = hardneg_context_multiplier * context_sub_batch_size - hardneg_context_batch_size
+        hardneg_context_embedding_grads_2d = tf.reshape(
+            hardneg_context_embedding_grads,
+            [hardneg_context_batch_size, -1]
+        )
+        hardneg_context_embedding_grads_padded = tf.pad(
+            hardneg_context_embedding_grads_2d,
+            [[0, hardneg_context_padding], [0, 0]]
         )
         hardneg_context_grads = self.params_backward(
             hardneg_context_input_ids_3d,
             hardneg_context_attention_mask_3d,
-            gradient_cache=tf.reshape(
-                embedding_grads["hardneg_context"],
-                hardneg_context_embedding_tensor.shape
-            ),
+            gradient_cache=hardneg_context_embedding_grads_padded,
             is_query_encoder=False
         )
 
@@ -950,7 +976,6 @@ class DualEncoderTrainer(object):
         positive_context_embedding: tf.Tensor,
         hardneg_context_embedding: tf.Tensor,
         hardneg_mask: tf.Tensor,
-        padding_mask: tf.Tensor
     ):
         with tf.GradientTape() as tape:
             tape.watch(query_embedding)
@@ -964,8 +989,7 @@ class DualEncoderTrainer(object):
                     "hardneg_mask": hardneg_mask
                 },
                 sim_func=self.config.sim_score,
-                type="poshard",
-                padding_mask=padding_mask
+                type="poshard"
             )
             loss = loss / self.strategy.num_replicas_in_sync
         
@@ -1026,40 +1050,55 @@ class DualEncoderTrainer(object):
 
         # backward from loss to embeddings
         query_batch_size = query_input_ids.shape.as_list()[0]
-        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
-        padding = query_multiplier * query_sub_batch_size - query_batch_size
-        padding_mask = tf.concat(
-            [
-                tf.ones(query_batch_size),
-                tf.zeros(padding)
-            ],
-            axis=0
-        )
+        hardneg_context_batch_size = hardneg_context_input_ids.shape.as_list()[0]
+        negative_context_batch_size = negative_context_input_ids.shape.as_list()[0]
         loss, embedding_grads = self.embedding_backward_hard(
-            query_embedding=query_embedding_tensor,
-            hardneg_context_embedding=hardneg_context_embedding_tensor,
-            negative_context_embedding=negative_context_embedding_tensor,
-            padding_mask=padding_mask,
+            query_embedding=query_embedding_tensor[:query_batch_size],
+            hardneg_context_embedding=hardneg_context_embedding_tensor[:hardneg_context_batch_size],
+            negative_context_embedding=negative_context_embedding_tensor[:negative_context_batch_size],
             duplicate_mask=duplicate_mask
         )
 
         # backward from embeddings to parameters
+        query_embedding_grads = embedding_grads["query"]
+        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
+        query_padding = query_multiplier * query_sub_batch_size - query_batch_size
+        query_embedding_grads_padded = tf.pad(
+            query_embedding_grads,
+            [[0, query_padding], [0, 0]]
+        )
         query_grads = self.params_backward(
             query_input_ids_3d,
             query_attention_mask_3d,
-            gradient_cache=embedding_grads["query"],
+            gradient_cache=query_embedding_grads_padded,
             is_query_encoder=True
+        )
+
+        hardneg_context_embedding_grads = embedding_grads["hardneg_context"]
+        hardneg_context_multiplier = (hardneg_context_batch_size - 1) // context_sub_batch_size + 1
+        hardneg_context_padding = hardneg_context_multiplier * context_sub_batch_size - hardneg_context_batch_size
+        hardneg_context_embedding_grads_padded = tf.pad(
+            hardneg_context_embedding_grads,
+            [[0, hardneg_context_padding], [0, 0]]
         )
         hardneg_context_grads = self.params_backward(
             hardneg_context_input_ids_3d,
             hardneg_context_attention_mask_3d,
-            gradient_cache=embedding_grads["hardneg_context"],
+            gradient_cache=hardneg_context_embedding_grads_padded,
             is_query_encoder=False
+        )
+
+        negative_context_embedding_grads = embedding_grads["negative_context"]
+        negative_context_multiplier = (negative_context_batch_size - 1) // context_sub_batch_size + 1
+        negative_context_padding = negative_context_multiplier * context_sub_batch_size - negative_context_batch_size
+        negative_context_embedding_grads_padded = tf.pad(
+            negative_context_embedding_grads,
+            [[0, negative_context_padding], [0, 0]]
         )
         negative_context_grads = self.params_backward(
             negative_context_input_ids_3d,
             negative_context_attention_mask_3d,
-            gradient_cache=embedding_grads["negative_context"],
+            gradient_cache=negative_context_embedding_grads_padded,
             is_query_encoder=False
         )
 
@@ -1079,7 +1118,6 @@ class DualEncoderTrainer(object):
         query_embedding: tf.Tensor,
         hardneg_context_embedding: tf.Tensor,
         negative_context_embedding: tf.Tensor,
-        padding_mask: tf.Tensor,
         duplicate_mask: tf.Tensor
     ):
         with tf.GradientTape() as tape:
@@ -1094,7 +1132,6 @@ class DualEncoderTrainer(object):
                 },
                 sim_func=self.config.sim_score,
                 type="hard",
-                padding_mask=padding_mask,
                 duplicate_mask=duplicate_mask
             )
             loss = loss / self.strategy.num_replicas_in_sync
