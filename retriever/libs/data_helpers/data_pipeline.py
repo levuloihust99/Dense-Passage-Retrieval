@@ -878,6 +878,17 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             "pos_dataset_size": pos_pipeline.dataset_size,
             "poshard_dataset_size": poshard_pipeline.dataset_size
         }
+    elif pipeline_config["train_mode"] == "inbatch++":
+        inbatch_dataset = inbatch_pipeline.build()
+        poshard_dataset = poshard_pipeline.build()
+        hard_dataset = hard_pipeline.build()
+        return {
+            "inbatch_dataset": inbatch_dataset,
+            "poshard_dataset": poshard_dataset,
+            "hard_dataset": hard_dataset,
+            "inbatch_dataset_size": inbatch_pipeline.dataset_size,
+            "poshard_dataset_size": poshard_pipeline.dataset_size
+        }
 
 
 def test_pipeline():

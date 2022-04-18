@@ -107,9 +107,10 @@ def main():
     start_time = time.perf_counter()
     datasets = get_pipelines(config.pipeline_config)
     if config.pipeline_config["train_mode"] not in {"pos", "inbatch"}:
-        regulate_factor = datasets["pos_dataset_size"] // datasets["poshard_dataset_size"]
+        regulate_factor = (datasets["pos_dataset_size"] or datasets["inbatch_dataset_size"]) // datasets["poshard_dataset_size"]
         datasets.pop("pos_dataset_size")
         datasets.pop("poshard_dataset_size")
+        datasets.pop("inbatch_dataset_size")
     else:
         regulate_factor = None
     dist_datasets = {

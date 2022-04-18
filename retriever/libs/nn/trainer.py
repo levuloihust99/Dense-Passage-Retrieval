@@ -47,6 +47,8 @@ class DualEncoderTrainer(object):
             self.train_pos()
         elif self.config.pipeline_config["train_mode"] == "inbatch":
             self.train_inbatch()
+        elif self.config.pipeline_config["train_mode"] == "inbatch++":
+            self.train_inbatch_plus()
 
     def train_pos(self):
         trained_steps = self.optimizer.iterations.numpy()
@@ -261,6 +263,100 @@ class DualEncoderTrainer(object):
                 start_time = time.perf_counter()
             if global_step % self.config.save_checkpoint_freq == 0:
                 self.save_checkpoint()
+    
+    def train_inbatch_plus(self):
+        trained_steps = self.optimizer.iterations.numpy()
+        logger.info(
+            "************************ Start training ************************")
+        global_step = trained_steps
+        inbatch_loss = -1.0
+        poshard_loss = -1.0
+        hard_loss = -1.0
+        start_time = time.perf_counter()
+        inbatch_step_fn = (
+            self.inbatch_step_fn_gc
+            if self.config.pipeline_config["use_gradient_cache"] is True
+            else self.inbatch_step_fn
+        )
+        poshard_step_fn = (
+            self.poshard_step_fn_gc
+            if self.config.pipeline_config["use_gradient_cache"] is True
+            else self.poshard_step_fn
+        )
+        hard_step_fn = (
+            self.hard_step_fn_gc
+            if self.config.pipeline_config["use_gradient_cache"] is True
+            else self.hard_step_fn
+        )
+        while global_step < self.config.num_train_steps:
+            # < inbatch pipeline
+            if (global_step + 2) % (self.config.regulate_factor + 2) != 0:
+                inbatch_loss = self.accumulate_step(
+                    iterator=self.iterators["inbatch_dataset"],
+                    step_fn=inbatch_step_fn,
+                    backward_accumulate_steps=self.config.pipeline_config["backward_accumulate_inbatch"]
+                )
+                global_step += 1
+                if global_step % self.config.logging_steps == 0:
+                    info = {
+                        "previous_time": start_time,
+                        "global_step": global_step,
+                        "current": {"value": inbatch_loss, "type": "Inbatch"},
+                        "previous": [
+                            {"value": poshard_loss, "type": "PosHard"},
+                            {"value": hard_loss, "type": "Hard"}
+                        ]
+                    }
+                    self.log(info)
+                    start_time = time.perf_counter()
+                if global_step % self.config.save_checkpoint_freq == 0:
+                    self.save_checkpoint()
+            # inbatch pipeline />
+            # < hard pipelines
+            else:
+                poshard_loss = self.accumulate_step(
+                    iterator=self.iterators["poshard_dataset"],
+                    step_fn=poshard_step_fn,
+                    backward_accumulate_steps=self.config.pipeline_config[
+                        "backward_accumulate_pos_hardneg"]
+                )
+                global_step += 1
+                if global_step % self.config.logging_steps == 0:
+                    info = {
+                        "previous_time": start_time,
+                        "global_step": global_step,
+                        "current": {"value": poshard_loss, "type": "PosHard"},
+                        "previous": [
+                            {"value": inbatch_loss, "type": "Inbatch"},
+                            {"value": hard_loss, "type": "Hard"},
+                        ]
+                    }
+                    self.log(info)
+                    start_time = time.perf_counter()
+                if global_step % self.config.save_checkpoint_freq == 0:
+                    self.save_checkpoint()
+                hard_loss = self.accumulate_step(
+                    iterator=self.iterators["hard_dataset"],
+                    step_fn=hard_step_fn,
+                    backward_accumulate_steps=self.config.pipeline_config[
+                        "backward_accumulate_hardneg_neg"]
+                )
+                global_step += 1
+                if global_step % self.config.logging_steps == 0:
+                    info = {
+                        "previous_time": start_time,
+                        "global_step": global_step,
+                        "current": {"value": hard_loss, "type": "Hard"},
+                        "previous": [
+                            {"value": inbatch_loss, "type": "Inbatch"},
+                            {"value": poshard_loss, "type": "PosHard"}
+                        ]
+                    }
+                    self.log(info)
+                    start_time = time.perf_counter()
+                if global_step % self.config.save_checkpoint_freq == 0:
+                    self.save_checkpoint()
+            # hard pipelines />
 
     def log(self, info):
         previous_info = info["previous"]
