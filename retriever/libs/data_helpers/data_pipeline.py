@@ -101,6 +101,24 @@ class PosPipeline(Pipeline):
             "grouped_data": grouped_data,
             "negative_samples": negatives_sampled
         }
+    
+    @staticmethod
+    def compute_duplicate_mask(item):
+        grouped_ids = item["grouped_data"]["sample_id"] # [B]
+        negative_ids = item["negative_samples"]["sample_id"] # [C]
+        B = tf.shape(grouped_ids)[0]
+        C = tf.shape(negative_ids)[0]
+        duplicate_mask = ~(
+            tf.tile(tf.expand_dims(grouped_ids, axis=1), [1, C]) ==
+            tf.tile(tf.expand_dims(negative_ids, axis=0), [B, 1])
+        )
+        duplicate_mask = tf.cast(duplicate_mask, dtype=tf.int32)
+        duplicate_mask = tf.concat(
+            [tf.ones([B, 1], dtype=tf.int32), duplicate_mask],
+            axis=1
+        )
+        return {**item, "duplicate_mask": duplicate_mask}
+
 
     def build(self):
         tfrecord_files = sorted(tf.io.gfile.listdir(self.data_source))
@@ -138,6 +156,8 @@ class PosPipeline(Pipeline):
             self.forward_batch_size + self.contrastive_size
         )
         dataset = dataset.map(self.build_contrastive_sample,
+                              num_parallel_calls=tf.data.AUTOTUNE)
+        dataset = dataset.map(PosPipeline.compute_duplicate_mask,
                               num_parallel_calls=tf.data.AUTOTUNE)
         return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
@@ -487,6 +507,8 @@ class HardPipeline(Pipeline):
                 self.forward_batch_size + self.contrastive_size)
             hard_dataset = hard_dataset.map(
                 self.build_contrastive_sample_onlyhard)
+            hard_dataset = hard_dataset.map(HardPipeline.compute_duplicate_mask,
+                                            num_parallel_calls=tf.data.AUTOTUNE)
             return hard_dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
             # hard pipeline transformations />
 
@@ -576,6 +598,8 @@ class HardPipeline(Pipeline):
         dataset = tf.data.Dataset.zip((hard_dataset, nonhard_dataset))
         dataset = dataset.map(self.build_contrastive_sample,
                               num_parallel_calls=tf.data.AUTOTUNE)
+        dataset = dataset.map(HardPipeline.compute_duplicate_mask,
+                              num_parallel_calls=tf.data.AUTOTUNE)
         return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
     def build_contrastive_sample(self, *item):
@@ -642,6 +666,23 @@ class HardPipeline(Pipeline):
             "grouped_data": grouped_data,
             "negative_samples": negatives_sampled
         }
+    
+    @staticmethod
+    def compute_duplicate_mask(item):
+        grouped_ids = item["grouped_data"]["sample_id"] # [B]
+        negative_ids = item["negative_samples"]["sample_id"] # [C]
+        B = tf.shape(grouped_ids)[0]
+        C = tf.shape(negative_ids)[0]
+        duplicate_mask = ~(
+            tf.tile(tf.expand_dims(grouped_ids, axis=1), [1, C]) ==
+            tf.tile(tf.expand_dims(negative_ids, axis=0), [B, 1])
+        )
+        duplicate_mask = tf.cast(duplicate_mask, dtype=tf.int32)
+        duplicate_mask = tf.concat(
+            [tf.ones([B, 1], dtype=tf.int32), duplicate_mask],
+            axis=1
+        )
+        return {**item, "duplicate_mask": duplicate_mask}
 
 
 class InbatchPipeline(Pipeline):
@@ -714,6 +755,17 @@ class InbatchPipeline(Pipeline):
             "positive_context/input_ids": positive_context_input_ids,
             "positive_context/attention_mask": positive_context_attention_mask,
         }
+    
+    @staticmethod
+    def compute_duplicate_mask(item):
+        ids = item["sample_id"]
+        B = tf.shape(ids)[0]
+        replicate_row = tf.tile(tf.expand_dims(ids, axis=0), [B, 1])
+        replicate_col = tf.tile(tf.expand_dims(ids, axis=1), [1, B])
+        duplicate_mask = ~(replicate_row == replicate_col)
+        duplicate_mask = duplicate_mask | tf.eye(B, dtype=tf.bool)
+        duplicate_mask = tf.cast(duplicate_mask, dtype=tf.int32)
+        return {**item, "duplicate_mask": duplicate_mask}
 
     def build(self):
         tfrecord_files = sorted(tf.io.gfile.listdir(self.data_source))
@@ -745,6 +797,7 @@ class InbatchPipeline(Pipeline):
             dataset = dataset.shuffle(buffer_size=10000)
         dataset = dataset.repeat()
         dataset = dataset.batch(self.forward_batch_size)
+        dataset = dataset.map(InbatchPipeline.compute_duplicate_mask, num_parallel_calls=tf.data.AUTOTUNE)
         return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
 
