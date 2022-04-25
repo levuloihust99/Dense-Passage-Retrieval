@@ -117,7 +117,6 @@ def create_poshard_example(
     tokenizer,
     max_query_length: int,
     max_context_length: int,
-    contrastive_size: int,
     **kwargs
 ) -> tf.train.Example:
     # question processing
@@ -146,10 +145,6 @@ def create_poshard_example(
     hardneg_contexts_feature = create_feature(hardneg_contexts_tokenized)
 
     # hard negative masking
-    hardneg_mask = [1] * len(item["hardneg_contexts"])
-    hardneg_mask = hardneg_mask[:contrastive_size]
-    pad_length = contrastive_size - len(hardneg_mask)
-    hardneg_mask = hardneg_mask + [0] * pad_length
 
     features = {
         'sample_id': tf.train.Feature(int64_list=tf.train.Int64List(value=[item["sample_id"]])),
@@ -159,7 +154,6 @@ def create_poshard_example(
         'positive_context/attention_mask': positive_contexts_feature["attention_mask_feature"],
         'hardneg_context/input_ids': hardneg_contexts_feature["input_ids_feature"],
         'hardneg_context/attention_mask': hardneg_contexts_feature["attention_mask_feature"],
-        'hardneg_mask': tf.train.Feature(int64_list=tf.train.Int64List(value=hardneg_mask)),
         'num_hardneg': tf.train.Feature(int64_list=tf.train.Int64List(value=[len(item["hardneg_contexts"])]))
     }
 
@@ -256,7 +250,6 @@ def main():
                 num_examples_per_file=args.num_examples_per_file,
                 max_query_length=pipeline_config["max_query_length"],
                 max_context_length=pipeline_config["max_context_length"],
-                contrastive_size=pipeline_config["contrastive_size_pos_hardneg"]
             )
     else:
         only_hard_data = []
@@ -276,7 +269,6 @@ def main():
                 num_examples_per_file=args.num_examples_per_file,
                 max_query_length=pipeline_config["max_query_length"],
                 max_context_length=pipeline_config["max_context_length"],
-                contrastive_size=pipeline_config["contrastive_size_pos_hardneg"]
             )
         if non_hard_data:
             write_examples(

@@ -16,7 +16,7 @@ def segment_recursive(data, segment_host, segment_keys=None):
             stack.extend(
                 list(zip([node] * len(node), node.keys(), node.values())))
         elif isinstance(node, str):
-            if segment_keys is None or index in segment_keys:
+            if segment_keys is None or index in segment_keys or isinstance(index, int):
                 if node:
                     headers = {'Content-Type': 'application/json'}
                     payload = {'sentence': node}
