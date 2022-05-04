@@ -1,11 +1,12 @@
 import tensorflow as tf
 
 
-def setup_distribute_strategy(use_tpu=False, tpu_name=''):
+def setup_distribute_strategy(use_tpu=False, tpu_name='', zone=None, project=None):
     if use_tpu:
         use_gpu = False
         try:
-            resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=tpu_name) # TPU detection
+            resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
+                tpu=tpu_name, zone=zone, project=project)  # TPU detection
             tf.config.experimental_connect_to_cluster(resolver)
             tf.tpu.experimental.initialize_tpu_system(resolver)
             strategy = tf.distribute.TPUStrategy(resolver)

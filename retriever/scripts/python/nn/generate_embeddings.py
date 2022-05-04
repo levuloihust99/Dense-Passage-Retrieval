@@ -82,7 +82,12 @@ def main():
     
     # setup environment
     setup_memory_growth()
-    strategy = setup_distribute_strategy(use_tpu=config.use_tpu, tpu_name=config.tpu_name)
+    strategy = setup_distribute_strategy(
+        use_tpu=config.use_tpu,
+        tpu_name=config.tpu_name,
+        zone=config.tpu_zone if hasattr(config, "tpu_zone") else None,
+        project=config.gcp_project if hasattr(config, "gcp_project") else None
+    )
 
     dataset, num_examples = load_corpus_dataset(
         data_source=config.corpus_tfrecord_dir,
@@ -130,7 +135,8 @@ def main():
     indexer.init_index(vector_sz=embeddings[0].shape[0])
     indexer.index_data(data_to_be_indexed)
 
-    if os.path.isfile(config.index_path):
+    # config.index_path is path to a file
+    if tf.io.gfile.exists(config.index_path) and not tf.io.gfile.isdir(config.index_path):
         index_dir = os.path.basename(config.index_path)
     else:
         index_dir = config.index_path
