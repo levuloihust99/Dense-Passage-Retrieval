@@ -141,7 +141,7 @@ def main():
     else:
         index_dir = config.index_path
     
-    if tf.io.gfile.exists(index_dir):
+    if not tf.io.gfile.exists(index_dir):
         tf.io.gfile.makedirs(index_dir)
 
     indexer.serialize(config.index_path)
