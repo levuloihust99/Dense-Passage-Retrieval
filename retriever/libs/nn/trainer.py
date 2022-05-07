@@ -1,5 +1,6 @@
 import tensorflow as tf
 import logging
+import json
 from typing import Union
 import time
 
@@ -85,6 +86,7 @@ class DualEncoderTrainer(object):
                 "base": self.hard_step_fn
             }
         }
+        self.graph_cache = {}
 
     def _setup_pipeline(self):
         """Setup data pipelines for fetching data item."""
@@ -286,7 +288,7 @@ class DualEncoderTrainer(object):
                 query_attention_mask=query_attention_mask,
                 context_input_ids=positive_context_input_ids,
                 context_attention_mask=positive_context_attention_mask,
-                training=True
+                training=False
             )
 
             loss = self.loss_calculator.compute(
@@ -334,22 +336,30 @@ class DualEncoderTrainer(object):
         query_sub_batch_size = \
             self.config.pipeline_config[GRADIENT_CACHE_CONFIG][QUERY_SUB_BATCH]
 
+        query_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=query_batch_size,
+            sub_batch_size=query_sub_batch_size,
+            is_query_encoder=True
+        )
         query_input_ids_3d, query_attention_mask_3d, query_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_query_encoder_graph,
-                args=(query_input_ids, query_attention_mask,
-                      query_sub_batch_size)
+                query_batch_forward_graph,
+                args=(query_input_ids, query_attention_mask)
             )
 
         context_sub_batch_size = \
             self.config.pipeline_config[GRADIENT_CACHE_CONFIG][CONTEXT_SUB_BATCH]
 
+        context_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=positive_context_batch_size,
+            sub_batch_size=context_sub_batch_size,
+            is_query_encoder=False
+        )
         positive_context_input_ids_3d, positive_context_attention_mask_3d, \
             positive_context_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_context_encoder_graph,
-                args=(positive_context_input_ids, positive_context_attention_mask,
-                      context_sub_batch_size)
+                context_batch_forward_graph,
+                args=(positive_context_input_ids, positive_context_attention_mask)
             )
 
         # backward from loss to embeddings
@@ -392,8 +402,9 @@ class DualEncoderTrainer(object):
                 query_embedding_grads,
                 [[0, query_padding], [0, 0]]
             )
+        query_params_backward_graph = self.get_params_backward_graph(True)
         query_grads = self.strategy.run(
-            self.params_backward_graph_query_encoder,
+            query_params_backward_graph,
             args=(query_input_ids_3d, query_attention_mask_3d,
                   query_embedding_grads_padded)
         )
@@ -416,8 +427,9 @@ class DualEncoderTrainer(object):
                 positive_context_embedding_grads,
                 [[0, positive_context_padding], [0, 0]]
             )
+        context_params_backward_graph = self.get_params_backward_graph(False)
         context_grads = self.strategy.run(
-            self.params_backward_graph_context_encoder,
+            context_params_backward_graph,
             args=(positive_context_input_ids_3d, positive_context_attention_mask_3d,
                   positive_context_embedding_grads_padded)
         )
@@ -459,13 +471,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["positive_context/input_ids"],
                 context_attention_mask=grouped_data["positive_context/attention_mask"],
-                training=True
+                training=False
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -705,13 +717,13 @@ class DualEncoderTrainer(object):
                 input_ids=query_input_ids,
                 attention_mask=query_attention_mask,
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             positive_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=positive_context_input_ids,
                 attention_mask=positive_context_attention_mask,
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
 
             # forward hard negative contexts with mask
@@ -719,7 +731,7 @@ class DualEncoderTrainer(object):
                 input_ids=hardneg_context_input_ids,
                 attention_mask=hardneg_context_attention_mask,
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             hardneg_context_embedding = tf.reshape(
                 hardneg_context_embedding,
@@ -994,13 +1006,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["hardneg_context/input_ids"],
                 context_attention_mask=grouped_data["hardneg_context/attention_mask"],
-                training=True
+                training=False
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -1326,100 +1338,6 @@ class DualEncoderTrainer(object):
         )
         return loss, embedding_grads
 
-    @tf.function
-    def no_tracking_gradient_encoder_forward(self, inputs, is_query_encoder: bool = True):
-        if is_query_encoder:
-            encoder = self.dual_encoder.query_encoder
-        else:
-            encoder = self.dual_encoder.context_encoder
-
-        outputs = encoder(
-            input_ids=inputs["input_ids"],
-            attention_mask=inputs["attention_mask"],
-            return_dict=True,
-            training=True
-        )
-        sequence_output = outputs.last_hidden_state
-        pooled_output = sequence_output[:, 0, :]
-        return pooled_output
-
-    @tf.function
-    def no_tracking_gradient_query_encoder_forward(self, inputs):
-        outputs = self.dual_encoder.query_encoder(
-            input_ids=inputs["input_ids"],
-            attention_mask=inputs["attention_mask"],
-            return_dict=True,
-            training=True
-        )
-        sequence_output = outputs.last_hidden_state
-        pooled_output = sequence_output[:, 0, :]
-        return pooled_output
-
-    @tf.function
-    def no_tracking_gradient_context_encoder_forward(self, inputs):
-        outputs = self.dual_encoder.context_encoder(
-            input_ids=inputs["input_ids"],
-            attention_mask=inputs["attention_mask"],
-            return_dict=True,
-            training=True
-        )
-        sequence_output = outputs.last_hidden_state
-        pooled_output = sequence_output[:, 0, :]
-        return pooled_output
-
-    @tf.function
-    def tracking_gradient_encoder_forward(self, inputs, gradient_cache, is_query_encoder: bool = True):
-        if is_query_encoder is True:
-            encoder = self.dual_encoder.query_encoder
-        else:
-            encoder = self.dual_encoder.context_encoder
-
-        with tf.GradientTape() as tape:
-            outputs = encoder(
-                input_ids=inputs["input_ids"],
-                attention_mask=inputs["attention_mask"],
-                return_dict=True,
-                training=True
-            )
-            sequence_output = outputs.last_hidden_state
-            pooled_output = sequence_output[:, 0, :]
-
-        grads = tape.gradient(
-            pooled_output, encoder.trainable_variables, output_gradients=gradient_cache)
-        return grads
-
-    @tf.function
-    def tracking_gradient_query_encoder_forward(self, inputs, gradient_cache):
-        with tf.GradientTape() as tape:
-            outputs = self.dual_encoder.query_encoder(
-                input_ids=inputs["input_ids"],
-                attention_mask=inputs["attention_mask"],
-                return_dict=True,
-                training=True
-            )
-            sequence_output = outputs.last_hidden_state
-            pooled_output = sequence_output[:, 0, :]
-
-        grads = tape.gradient(
-            pooled_output, self.dual_encoder.query_encoder.trainable_variables, output_gradients=gradient_cache)
-        return grads
-
-    @tf.function
-    def tracking_gradient_context_encoder_forward(self, inputs, gradient_cache):
-        with tf.GradientTape() as tape:
-            outputs = self.dual_encoder.context_encoder(
-                input_ids=inputs["input_ids"],
-                attention_mask=inputs["attention_mask"],
-                return_dict=True,
-                training=True
-            )
-            sequence_output = outputs.last_hidden_state
-            pooled_output = sequence_output[:, 0, :]
-
-        grads = tape.gradient(
-            pooled_output, self.dual_encoder.context_encoder.trainable_variables, output_gradients=gradient_cache)
-        return grads
-
     def get_batch_embeddings(
         self,
         input_ids: tf.Tensor,
@@ -1454,155 +1372,68 @@ class DualEncoderTrainer(object):
         embedding_tensor = tf.concat(embedding, axis=0)
         return input_ids_3d, attention_mask_3d, embedding_tensor
 
-    @tf.function
-    def get_batch_embeddings_graph(
+    def get_batch_forward_graph(
         self,
-        input_ids: tf.Tensor,
-        attention_mask: tf.Tensor,
+        batch_size: int,
         sub_batch_size: int,
         is_query_encoder: bool
     ):
-        batch_size = input_ids.shape.as_list()[0]
-        multiplier = (batch_size - 1) // sub_batch_size + 1
-        padding = multiplier * sub_batch_size - batch_size
-        input_ids_padded, attention_mask_padded = \
-            self.padding(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                padding=padding
-            )
-        input_ids_3d = tf.reshape(
-            input_ids_padded,
-            shape=[multiplier, sub_batch_size, -1]
-        )
-        attention_mask_3d = tf.reshape(
-            attention_mask_padded,
-            shape=[multiplier, sub_batch_size, -1]
-        )
+        graph_key = "get_batch_forward_graph::" + json.dumps({
+            "batch_size": batch_size,
+            "sub_batch_size": sub_batch_size,
+            "is_query_encoder": is_query_encoder
+        })
+        if graph_key in self.graph_cache:
+            return self.graph_cache[graph_key]
 
-        def loop_func(idx, concatenated_emb):
-            emb = self.no_tracking_gradient_encoder_forward(
-                inputs={
-                    "input_ids": input_ids_3d[idx],
-                    "attention_mask": attention_mask_3d[idx]
-                },
-                is_query_encoder=is_query_encoder
-            )
-            return idx + 1, tf.concat([concatenated_emb, emb], axis=0)
-
-        idx = tf.constant(0)
         encoder = self.dual_encoder.query_encoder if is_query_encoder else self.dual_encoder.context_encoder
-        hidden_size = encoder.config.hidden_size
-        init_embedding = tf.zeros([0, hidden_size])
-        _, embedding_tensor = tf.while_loop(
-            cond=lambda idx, emb: tf.less(idx, multiplier),
-            body=loop_func,
-            loop_vars=(idx, init_embedding),
-            shape_invariants=(
-                idx.get_shape(), tf.TensorShape([None, hidden_size]))
-        )
-        embedding_tensor = tf.reshape(
-            embedding_tensor, [batch_size, hidden_size])
-
-        return input_ids_3d, attention_mask_3d, embedding_tensor
-
-    @tf.function
-    def get_batch_embeddings_query_encoder_graph(
-        self,
-        input_ids: tf.Tensor,
-        attention_mask: tf.Tensor,
-        sub_batch_size: int
-    ):
-        batch_size = input_ids.shape.as_list()[0]
         multiplier = (batch_size - 1) // sub_batch_size + 1
         padding = multiplier * sub_batch_size - batch_size
-        input_ids_padded, attention_mask_padded = \
-            self.padding(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                padding=padding
+        no_tracking_gradient_graph = self.get_no_tracking_gradient_forward_graph(is_query_encoder)
+
+        def batch_forward_graph(
+            input_ids: tf.Tensor,
+            attention_mask: tf.Tensor
+        ):
+            input_ids_padded, attention_mask_padded = \
+                self.padding(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    padding=padding
+                )
+            input_ids_3d = tf.reshape(
+                input_ids_padded,
+                shape=[multiplier, sub_batch_size, -1]
             )
-        input_ids_3d = tf.reshape(
-            input_ids_padded,
-            shape=[multiplier, sub_batch_size, -1]
-        )
-        attention_mask_3d = tf.reshape(
-            attention_mask_padded,
-            shape=[multiplier, sub_batch_size, -1]
-        )
-
-        def loop_func(idx, concatenated_emb):
-            emb = self.no_tracking_gradient_query_encoder_forward(
-                inputs={
-                    "input_ids": input_ids_3d[idx],
-                    "attention_mask": attention_mask_3d[idx]
-                }
+            attention_mask_3d = tf.reshape(
+                attention_mask_padded,
+                shape=[multiplier, sub_batch_size, -1]
             )
-            return idx + 1, tf.concat([concatenated_emb, emb], axis=0)
 
-        idx = tf.constant(0)
-        hidden_size = self.dual_encoder.query_encoder.config.hidden_size
-        init_embedding = tf.zeros([0, hidden_size])
-        _, embedding_tensor = tf.while_loop(
-            cond=lambda idx, emb: tf.less(idx, multiplier),
-            body=loop_func,
-            loop_vars=(idx, init_embedding),
-            shape_invariants=(
-                idx.get_shape(), tf.TensorShape([None, hidden_size]))
-        )
-        embedding_tensor = tf.reshape(
-            embedding_tensor, [batch_size, hidden_size])
+            def loop_func(idx, container_emb, indices):
+                emb = no_tracking_gradient_graph(
+                    input_ids=input_ids_3d[idx],
+                    attention_mask=attention_mask_3d[idx]
+                )
+                updated_container_emb = tf.tensor_scatter_nd_update(container_emb, indices, emb)
+                updated_indices = indices + sub_batch_size
+                return idx + 1, updated_container_emb, updated_indices
 
-        return input_ids_3d, attention_mask_3d, embedding_tensor
-
-    @tf.function
-    def get_batch_embeddings_context_encoder_graph(
-        self,
-        input_ids: tf.Tensor,
-        attention_mask: tf.Tensor,
-        sub_batch_size: int
-    ):
-        batch_size = input_ids.shape.as_list()[0]
-        multiplier = (batch_size - 1) // sub_batch_size + 1
-        padding = multiplier * sub_batch_size - batch_size
-        input_ids_padded, attention_mask_padded = \
-            self.padding(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                padding=padding
+            idx = tf.constant(0)
+            hidden_size = encoder.config.hidden_size
+            container_embedding = tf.zeros([multiplier * sub_batch_size, hidden_size])
+            initial_indices = tf.expand_dims(tf.range(sub_batch_size), axis=-1)
+            _, embedding_tensor, _ = tf.while_loop(
+                cond=lambda idx, emb, indices: tf.less(idx, multiplier),
+                body=loop_func,
+                loop_vars=(idx, container_embedding, initial_indices),
+                maximum_iterations=multiplier
             )
-        input_ids_3d = tf.reshape(
-            input_ids_padded,
-            shape=[multiplier, sub_batch_size, -1]
-        )
-        attention_mask_3d = tf.reshape(
-            attention_mask_padded,
-            shape=[multiplier, sub_batch_size, -1]
-        )
 
-        def loop_func(idx, concatenated_emb):
-            emb = self.no_tracking_gradient_context_encoder_forward(
-                inputs={
-                    "input_ids": input_ids_3d[idx],
-                    "attention_mask": attention_mask_3d[idx]
-                }
-            )
-            return idx + 1, tf.concat([concatenated_emb, emb], axis=0)
-
-        idx = tf.constant(0)
-        hidden_size = self.dual_encoder.context_encoder.config.hidden_size
-        init_embedding = tf.zeros([0, hidden_size])
-        _, embedding_tensor = tf.while_loop(
-            cond=lambda idx, emb: tf.less(idx, multiplier),
-            body=loop_func,
-            loop_vars=(idx, init_embedding),
-            shape_invariants=(
-                idx.get_shape(), tf.TensorShape([None, hidden_size]))
-        )
-        embedding_tensor = tf.reshape(
-            embedding_tensor, [batch_size, hidden_size])
-
-        return input_ids_3d, attention_mask_3d, embedding_tensor
+            return input_ids_3d, attention_mask_3d, embedding_tensor
+        
+        self.graph_cache[graph_key] = tf.function(batch_forward_graph)
+        return self.graph_cache[graph_key]
 
     def params_backward(
         self,
@@ -1635,116 +1466,99 @@ class DualEncoderTrainer(object):
 
         return grads
 
-    @tf.function
-    def params_backward_graph(
-        self,
-        input_ids_3d: tf.Tensor,
-        attention_mask_3d: tf.Tensor,
-        gradient_cache: tf.Tensor,
-        is_query_encoder: bool
-    ):
-        if is_query_encoder is True:
-            encoder = self.dual_encoder.query_encoder
-        else:
-            encoder = self.dual_encoder.context_encoder
-        multiplier, sub_batch_size, _ = input_ids_3d.shape.as_list()
+    def get_params_backward_graph(self, is_query_encoder: bool):
+        graph_key = "get_params_backward_graph::" + str(is_query_encoder)
+        if graph_key in self.graph_cache:
+            return self.graph_cache[graph_key]
+        
+        encoder = self.dual_encoder.query_encoder if is_query_encoder else self.dual_encoder.context_encoder
+        tracking_gradient_biward_graph = self.get_tracking_gradient_biward_graph(is_query_encoder)
+        
+        def params_backward_graph(input_ids_3d, attention_mask_3d, gradient_cache):
+            print(input_ids_3d.shape.as_list())
+            print(attention_mask_3d.shape.as_list())
+            print(gradient_cache.shape.as_list())
+            print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+            multiplier, sub_batch_size, _ = input_ids_3d.shape.as_list()
 
-        def loop_func(idx, grads):
-            sub_grads = self.tracking_gradient_encoder_forward(
-                inputs={
-                    "input_ids": input_ids_3d[idx],
-                    "attention_mask": attention_mask_3d[idx]
-                },
-                gradient_cache=gradient_cache[
-                    sub_batch_size * idx: sub_batch_size * (idx + 1)
-                ],
-                is_query_encoder=is_query_encoder
+            def loop_func(idx, grads):
+                sub_grads = tracking_gradient_biward_graph(
+                    input_ids=input_ids_3d[idx],
+                    attention_mask=attention_mask_3d[idx],
+                    gradient_cache=gradient_cache[
+                        sub_batch_size * idx: sub_batch_size * (idx + 1)
+                    ]
+                )
+                sub_grads = [tf.convert_to_tensor(grad) for grad in sub_grads]
+                grads = [grad + tf.reshape(sub_grad, grad.get_shape())
+                        for grad, sub_grad in zip(grads, sub_grads)]
+                return idx + 1, grads
+
+            idx = tf.constant(0, dtype=tf.int32)
+            init_grads = [tf.zeros_like(var)
+                        for var in encoder.trainable_variables]
+            _, grads = tf.while_loop(
+                cond=lambda idx, _: tf.less(idx, multiplier),
+                body=loop_func,
+                loop_vars=(idx, init_grads),
+                maximum_iterations=multiplier
             )
-            sub_grads = [tf.convert_to_tensor(grad) for grad in sub_grads]
-            grads = [grad + tf.reshape(sub_grad, grad.get_shape())
-                     for grad, sub_grad in zip(grads, sub_grads)]
-            return idx + 1, grads
 
-        idx = tf.constant(0, dtype=tf.int32)
-        init_grads = [tf.zeros_like(var)
-                      for var in encoder.trainable_variables]
-        _, grads = tf.while_loop(
-            cond=lambda idx, _: tf.less(idx, multiplier),
-            body=loop_func,
-            loop_vars=(idx, init_grads)
-        )
+            return grads
+        
+        self.graph_cache[graph_key] = tf.function(params_backward_graph)
+        return self.graph_cache[graph_key]
 
-        return grads
+    def get_no_tracking_gradient_forward_graph(self, is_query_encoder: bool):
+        graph_key = "get_no_tracking_gradient_forward_graph::" + str(is_query_encoder)
+        if graph_key in self.graph_cache:
+            return self.graph_cache[graph_key]
+        
+        encoder = self.dual_encoder.query_encoder if is_query_encoder else self.dual_encoder.context_encoder
 
-    @tf.function
-    def params_backward_graph_query_encoder(
-        self,
-        input_ids_3d: tf.Tensor,
-        attention_mask_3d: tf.Tensor,
-        gradient_cache: tf.Tensor
-    ):
-        multiplier, sub_batch_size, _ = input_ids_3d.shape.as_list()
-
-        def loop_func(idx, grads):
-            sub_grads = self.tracking_gradient_query_encoder_forward(
-                inputs={
-                    "input_ids": input_ids_3d[idx],
-                    "attention_mask": attention_mask_3d[idx]
-                },
-                gradient_cache=gradient_cache[
-                    sub_batch_size * idx: sub_batch_size * (idx + 1)
-                ]
+        def no_tracking_gradient_forward_graph(input_ids, attention_mask):
+            outputs = encoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                return_dict=True,
+                training=False
             )
-            sub_grads = [tf.convert_to_tensor(grad) for grad in sub_grads]
-            grads = [grad + tf.reshape(sub_grad, grad.get_shape())
-                     for grad, sub_grad in zip(grads, sub_grads)]
-            return idx + 1, grads
+            sequence_output = outputs.last_hidden_state
+            pooled_output = sequence_output[:, 0, :]
+            return pooled_output
+        
+        self.graph_cache[graph_key] = tf.function(no_tracking_gradient_forward_graph)
+        return self.graph_cache[graph_key]
 
-        idx = tf.constant(0, dtype=tf.int32)
-        init_grads = [tf.zeros_like(var)
-                      for var in self.dual_encoder.query_encoder.trainable_variables]
-        _, grads = tf.while_loop(
-            cond=lambda idx, _: tf.less(idx, multiplier),
-            body=loop_func,
-            loop_vars=(idx, init_grads)
-        )
+    def get_tracking_gradient_biward_graph(self, is_query_encoder: bool):
+        graph_key = "get_tracking_gradient_biward_graph::" + str(is_query_encoder)
+        if graph_key in self.graph_cache:
+            return self.graph_cache[graph_key]
+        
+        encoder = self.dual_encoder.query_encoder if is_query_encoder else self.dual_encoder.context_encoder
 
-        return grads
+        def tracking_gradient_biward_graph(input_ids, attention_mask, gradient_cache):
+            print(input_ids.shape.as_list())
+            print(attention_mask.shape.as_list())
+            print(gradient_cache.shape.as_list())
+            print(is_query_encoder)
+            print("--------------------------------------")
+            with tf.GradientTape() as tape:
+                outputs = encoder(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    return_dict=True,
+                    training=False
+                )
+                sequence_output = outputs.last_hidden_state
+                pooled_output = sequence_output[:, 0, :]
 
-    @tf.function
-    def params_backward_graph_context_encoder(
-        self,
-        input_ids_3d: tf.Tensor,
-        attention_mask_3d: tf.Tensor,
-        gradient_cache: tf.Tensor
-    ):
-        multiplier, sub_batch_size, _ = input_ids_3d.shape.as_list()
-
-        def loop_func(idx, grads):
-            sub_grads = self.tracking_gradient_context_encoder_forward(
-                inputs={
-                    "input_ids": input_ids_3d[idx],
-                    "attention_mask": attention_mask_3d[idx]
-                },
-                gradient_cache=gradient_cache[
-                    sub_batch_size * idx: sub_batch_size * (idx + 1)
-                ]
-            )
-            sub_grads = [tf.convert_to_tensor(grad) for grad in sub_grads]
-            grads = [grad + tf.reshape(sub_grad, grad.get_shape())
-                     for grad, sub_grad in zip(grads, sub_grads)]
-            return idx + 1, grads
-
-        idx = tf.constant(0, dtype=tf.int32)
-        init_grads = [tf.zeros_like(var)
-                      for var in self.dual_encoder.context_encoder.trainable_variables]
-        _, grads = tf.while_loop(
-            cond=lambda idx, _: tf.less(idx, multiplier),
-            body=loop_func,
-            loop_vars=(idx, init_grads)
-        )
-
-        return grads
+            grads = tape.gradient(
+                pooled_output, encoder.trainable_variables, output_gradients=gradient_cache)
+            return grads
+        
+        self.graph_cache[graph_key] = tf.function(tracking_gradient_biward_graph)
+        return self.graph_cache[graph_key]
 
     def padding(self, input_ids, attention_mask, padding):
         compact = tf.stack(
