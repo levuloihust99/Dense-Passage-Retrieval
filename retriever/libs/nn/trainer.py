@@ -336,9 +336,9 @@ class DualEncoderTrainer(object):
 
         query_input_ids_3d, query_attention_mask_3d, query_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_graph,
+                self.get_batch_embeddings_query_encoder_graph,
                 args=(query_input_ids, query_attention_mask,
-                      query_sub_batch_size, True)
+                      query_sub_batch_size)
             )
 
         context_sub_batch_size = \
@@ -347,9 +347,9 @@ class DualEncoderTrainer(object):
         positive_context_input_ids_3d, positive_context_attention_mask_3d, \
             positive_context_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_graph,
+                self.get_batch_embeddings_context_encoder_graph,
                 args=(positive_context_input_ids, positive_context_attention_mask,
-                      context_sub_batch_size, False)
+                      context_sub_batch_size)
             )
 
         # backward from loss to embeddings
@@ -393,9 +393,9 @@ class DualEncoderTrainer(object):
                 [[0, query_padding], [0, 0]]
             )
         query_grads = self.strategy.run(
-            self.params_backward_graph,
+            self.params_backward_graph_query_encoder,
             args=(query_input_ids_3d, query_attention_mask_3d,
-                  query_embedding_grads_padded, True)
+                  query_embedding_grads_padded)
         )
 
         positive_context_embedding_grads = embedding_grads["context"]
@@ -417,9 +417,9 @@ class DualEncoderTrainer(object):
                 [[0, positive_context_padding], [0, 0]]
             )
         context_grads = self.strategy.run(
-            self.params_backward_graph,
+            self.params_backward_graph_context_encoder,
             args=(positive_context_input_ids_3d, positive_context_attention_mask_3d,
-                  positive_context_embedding_grads_padded, False)
+                  positive_context_embedding_grads_padded)
         )
         grads = query_grads + context_grads  # concatenate list
 
@@ -522,9 +522,9 @@ class DualEncoderTrainer(object):
 
         query_input_ids_3d, query_attention_mask_3d, query_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_graph,
+                self.get_batch_embeddings_query_encoder_graph,
                 args=(query_input_ids, query_attention_mask,
-                      query_sub_batch_size, True)
+                      query_sub_batch_size)
             )
 
         context_sub_batch_size = \
@@ -533,16 +533,16 @@ class DualEncoderTrainer(object):
         positive_context_input_ids_3d, positive_context_attention_mask_3d, \
             positive_context_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_graph,
+                self.get_batch_embeddings_context_encoder_graph,
                 args=(positive_context_input_ids, positive_context_attention_mask,
-                      context_sub_batch_size, False)
+                      context_sub_batch_size)
             )
         negative_context_input_ids_3d, negative_context_attention_mask_3d, \
             negative_context_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_graph,
+                self.get_batch_embeddings_context_encoder_graph,
                 args=(negative_context_input_ids, negative_context_attention_mask,
-                      context_sub_batch_size, False)
+                      context_sub_batch_size)
             )
 
         # backward from loss to embeddings
@@ -593,9 +593,9 @@ class DualEncoderTrainer(object):
                 [[0, query_padding], [0, 0]]
             )
         query_grads = self.strategy.run(
-            self.params_backward_graph,
+            self.params_backward_graph_query_encoder,
             args=(query_input_ids_3d, query_attention_mask_3d,
-                  query_embedding_grads_padded, True)
+                  query_embedding_grads_padded)
         )
 
         positive_context_embedding_grads = embedding_grads["positive_context"]
@@ -617,9 +617,9 @@ class DualEncoderTrainer(object):
                 [[0, positive_context_padding], [0, 0]]
             )
         positive_context_grads = self.strategy.run(
-            self.params_backward_graph,
+            self.params_backward_graph_context_encoder,
             args=(positive_context_input_ids_3d, positive_context_attention_mask_3d,
-                  positive_context_embedding_grads_padded, False)
+                  positive_context_embedding_grads_padded)
         )
 
         negative_context_embedding_grads = embedding_grads["negative_context"]
@@ -645,9 +645,9 @@ class DualEncoderTrainer(object):
                 [[0, negative_context_padding], [0, 0]]
             )
         negative_context_grads = self.strategy.run(
-            self.params_backward_graph,
+            self.params_backward_graph_context_encoder,
             args=(negative_context_input_ids_3d, negative_context_attention_mask_3d,
-                  negative_context_embedding_grads_padded, False)
+                  negative_context_embedding_grads_padded)
         )
 
         # reduce to one device
@@ -805,9 +805,9 @@ class DualEncoderTrainer(object):
 
         query_input_ids_3d, query_attention_mask_3d, query_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_graph,
+                self.get_batch_embeddings_query_encoder_graph,
                 args=(query_input_ids, query_attention_mask,
-                      query_sub_batch_size, True)
+                      query_sub_batch_size)
             )
 
         context_sub_batch_size = \
@@ -816,16 +816,16 @@ class DualEncoderTrainer(object):
         positive_context_input_ids_3d, positive_context_attention_mask_3d, \
             positive_context_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_graph,
+                self.get_batch_embeddings_context_encoder_graph,
                 args=(positive_context_input_ids, positive_context_attention_mask,
-                      context_sub_batch_size, False)
+                      context_sub_batch_size)
             )
         hardneg_context_input_ids_3d, hardneg_context_attention_mask_3d, \
             hardneg_context_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_graph,
+                self.get_batch_embeddings_context_encoder_graph,
                 args=(hardneg_context_input_ids, hardneg_context_attention_mask,
-                      context_sub_batch_size, False)
+                      context_sub_batch_size)
             )
         if is_parallel_training:
             # query
@@ -888,9 +888,9 @@ class DualEncoderTrainer(object):
                 [[0, query_padding], [0, 0]]
             )
         query_grads = self.strategy.run(
-            self.params_backward_graph,
+            self.params_backward_graph_query_encoder,
             args=(query_input_ids_3d, query_attention_mask_3d,
-                  query_embedding_grads_padded, True)
+                  query_embedding_grads_padded)
         )
 
         positive_context_embedding_grads = embedding_grads["positive_context"]
@@ -912,9 +912,9 @@ class DualEncoderTrainer(object):
                 [[0, positive_context_padding], [0, 0]]
             )
         positive_context_grads = self.strategy.run(
-            self.params_backward_graph,
+            self.params_backward_graph_context_encoder,
             args=(positive_context_input_ids_3d, positive_context_attention_mask_3d,
-                  positive_context_embedding_grads_padded, False)
+                  positive_context_embedding_grads_padded)
         )
 
         hardneg_context_embedding_grads = embedding_grads["hardneg_context"]
@@ -941,9 +941,9 @@ class DualEncoderTrainer(object):
                 [[0, hardneg_context_padding], [0, 0]]
             )
         hardneg_context_grads = self.strategy.run(
-            self.params_backward_graph,
+            self.params_backward_graph_context_encoder,
             args=(hardneg_context_input_ids_3d, hardneg_context_attention_mask_3d,
-                  hardneg_context_embedding_grads_padded, False)
+                  hardneg_context_embedding_grads_padded)
         )
 
         # reduce to one device
@@ -1056,9 +1056,9 @@ class DualEncoderTrainer(object):
 
         query_input_ids_3d, query_attention_mask_3d, query_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_graph,
+                self.get_batch_embeddings_query_encoder_graph,
                 args=(query_input_ids, query_attention_mask,
-                      query_sub_batch_size, True)
+                      query_sub_batch_size)
             )
 
         context_sub_batch_size = \
@@ -1067,16 +1067,16 @@ class DualEncoderTrainer(object):
         hardneg_context_input_ids_3d, hardneg_context_attention_mask_3d, \
             hardneg_context_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_graph,
+                self.get_batch_embeddings_context_encoder_graph,
                 args=(hardneg_context_input_ids, hardneg_context_attention_mask,
-                      context_sub_batch_size, False)
+                      context_sub_batch_size)
             )
         negative_context_input_ids_3d, negative_context_attention_mask_3d, \
             negative_context_embedding_tensor = \
             self.strategy.run(
-                self.get_batch_embeddings_graph,
+                self.get_batch_embeddings_context_encoder_graph,
                 args=(negative_context_input_ids, negative_context_attention_mask,
-                      context_sub_batch_size, False)
+                      context_sub_batch_size)
             )
 
         # backward from loss to embeddings
@@ -1127,9 +1127,9 @@ class DualEncoderTrainer(object):
                 [[0, query_padding], [0, 0]]
             )
         query_grads = self.strategy.run(
-            self.params_backward_graph,
+            self.params_backward_graph_query_encoder,
             args=(query_input_ids_3d, query_attention_mask_3d,
-                  query_embedding_grads_padded, True)
+                  query_embedding_grads_padded)
         )
 
         hardneg_context_embedding_grads = embedding_grads["hardneg_context"]
@@ -1151,9 +1151,9 @@ class DualEncoderTrainer(object):
                 [[0, hardneg_context_padding], [0, 0]]
             )
         hardneg_context_grads = self.strategy.run(
-            self.params_backward_graph,
+            self.params_backward_graph_context_encoder,
             args=(hardneg_context_input_ids_3d, hardneg_context_attention_mask_3d,
-                  hardneg_context_embedding_grads_padded, False)
+                  hardneg_context_embedding_grads_padded)
         )
 
         negative_context_embedding_grads = embedding_grads["negative_context"]
@@ -1175,9 +1175,9 @@ class DualEncoderTrainer(object):
                 [[0, negative_context_padding], [0, 0]]
             )
         negative_context_grads = self.strategy.run(
-            self.params_backward_graph,
+            self.params_backward_graph_context_encoder,
             args=(negative_context_input_ids_3d, negative_context_attention_mask_3d,
-                  negative_context_embedding_grads_padded, False)
+                  negative_context_embedding_grads_padded)
         )
 
         # reduce to one device
@@ -1344,6 +1344,30 @@ class DualEncoderTrainer(object):
         return pooled_output
 
     @tf.function
+    def no_tracking_gradient_query_encoder_forward(self, inputs):
+        outputs = self.dual_encoder.query_encoder(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs["attention_mask"],
+            return_dict=True,
+            training=True
+        )
+        sequence_output = outputs.last_hidden_state
+        pooled_output = sequence_output[:, 0, :]
+        return pooled_output
+
+    @tf.function
+    def no_tracking_gradient_context_encoder_forward(self, inputs):
+        outputs = self.dual_encoder.context_encoder(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs["attention_mask"],
+            return_dict=True,
+            training=True
+        )
+        sequence_output = outputs.last_hidden_state
+        pooled_output = sequence_output[:, 0, :]
+        return pooled_output
+
+    @tf.function
     def tracking_gradient_encoder_forward(self, inputs, gradient_cache, is_query_encoder: bool = True):
         if is_query_encoder is True:
             encoder = self.dual_encoder.query_encoder
@@ -1362,6 +1386,38 @@ class DualEncoderTrainer(object):
 
         grads = tape.gradient(
             pooled_output, encoder.trainable_variables, output_gradients=gradient_cache)
+        return grads
+
+    @tf.function
+    def tracking_gradient_query_encoder_forward(self, inputs, gradient_cache):
+        with tf.GradientTape() as tape:
+            outputs = self.dual_encoder.query_encoder(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                return_dict=True,
+                training=True
+            )
+            sequence_output = outputs.last_hidden_state
+            pooled_output = sequence_output[:, 0, :]
+
+        grads = tape.gradient(
+            pooled_output, self.dual_encoder.query_encoder.trainable_variables, output_gradients=gradient_cache)
+        return grads
+
+    @tf.function
+    def tracking_gradient_context_encoder_forward(self, inputs, gradient_cache):
+        with tf.GradientTape() as tape:
+            outputs = self.dual_encoder.context_encoder(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                return_dict=True,
+                training=True
+            )
+            sequence_output = outputs.last_hidden_state
+            pooled_output = sequence_output[:, 0, :]
+
+        grads = tape.gradient(
+            pooled_output, self.dual_encoder.context_encoder.trainable_variables, output_gradients=gradient_cache)
         return grads
 
     def get_batch_embeddings(
@@ -1450,6 +1506,104 @@ class DualEncoderTrainer(object):
 
         return input_ids_3d, attention_mask_3d, embedding_tensor
 
+    @tf.function
+    def get_batch_embeddings_query_encoder_graph(
+        self,
+        input_ids: tf.Tensor,
+        attention_mask: tf.Tensor,
+        sub_batch_size: int
+    ):
+        batch_size = input_ids.shape.as_list()[0]
+        multiplier = (batch_size - 1) // sub_batch_size + 1
+        padding = multiplier * sub_batch_size - batch_size
+        input_ids_padded, attention_mask_padded = \
+            self.padding(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                padding=padding
+            )
+        input_ids_3d = tf.reshape(
+            input_ids_padded,
+            shape=[multiplier, sub_batch_size, -1]
+        )
+        attention_mask_3d = tf.reshape(
+            attention_mask_padded,
+            shape=[multiplier, sub_batch_size, -1]
+        )
+
+        def loop_func(idx, concatenated_emb):
+            emb = self.no_tracking_gradient_query_encoder_forward(
+                inputs={
+                    "input_ids": input_ids_3d[idx],
+                    "attention_mask": attention_mask_3d[idx]
+                }
+            )
+            return idx + 1, tf.concat([concatenated_emb, emb], axis=0)
+
+        idx = tf.constant(0)
+        hidden_size = self.dual_encoder.query_encoder.config.hidden_size
+        init_embedding = tf.zeros([0, hidden_size])
+        _, embedding_tensor = tf.while_loop(
+            cond=lambda idx, emb: tf.less(idx, multiplier),
+            body=loop_func,
+            loop_vars=(idx, init_embedding),
+            shape_invariants=(
+                idx.get_shape(), tf.TensorShape([None, hidden_size]))
+        )
+        embedding_tensor = tf.reshape(
+            embedding_tensor, [batch_size, hidden_size])
+
+        return input_ids_3d, attention_mask_3d, embedding_tensor
+
+    @tf.function
+    def get_batch_embeddings_context_encoder_graph(
+        self,
+        input_ids: tf.Tensor,
+        attention_mask: tf.Tensor,
+        sub_batch_size: int
+    ):
+        batch_size = input_ids.shape.as_list()[0]
+        multiplier = (batch_size - 1) // sub_batch_size + 1
+        padding = multiplier * sub_batch_size - batch_size
+        input_ids_padded, attention_mask_padded = \
+            self.padding(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                padding=padding
+            )
+        input_ids_3d = tf.reshape(
+            input_ids_padded,
+            shape=[multiplier, sub_batch_size, -1]
+        )
+        attention_mask_3d = tf.reshape(
+            attention_mask_padded,
+            shape=[multiplier, sub_batch_size, -1]
+        )
+
+        def loop_func(idx, concatenated_emb):
+            emb = self.no_tracking_gradient_context_encoder_forward(
+                inputs={
+                    "input_ids": input_ids_3d[idx],
+                    "attention_mask": attention_mask_3d[idx]
+                }
+            )
+            return idx + 1, tf.concat([concatenated_emb, emb], axis=0)
+
+        idx = tf.constant(0)
+        hidden_size = self.dual_encoder.context_encoder.config.hidden_size
+        init_embedding = tf.zeros([0, hidden_size])
+        _, embedding_tensor = tf.while_loop(
+            cond=lambda idx, emb: tf.less(idx, multiplier),
+            body=loop_func,
+            loop_vars=(idx, init_embedding),
+            shape_invariants=(
+                idx.get_shape(), tf.TensorShape([None, hidden_size]))
+        )
+        embedding_tensor = tf.reshape(
+            embedding_tensor, [batch_size, hidden_size])
+
+        return input_ids_3d, attention_mask_3d, embedding_tensor
+
     def params_backward(
         self,
         input_ids_3d: tf.Tensor,
@@ -1514,6 +1668,76 @@ class DualEncoderTrainer(object):
         idx = tf.constant(0, dtype=tf.int32)
         init_grads = [tf.zeros_like(var)
                       for var in encoder.trainable_variables]
+        _, grads = tf.while_loop(
+            cond=lambda idx, _: tf.less(idx, multiplier),
+            body=loop_func,
+            loop_vars=(idx, init_grads)
+        )
+
+        return grads
+
+    @tf.function
+    def params_backward_graph_query_encoder(
+        self,
+        input_ids_3d: tf.Tensor,
+        attention_mask_3d: tf.Tensor,
+        gradient_cache: tf.Tensor
+    ):
+        multiplier, sub_batch_size, _ = input_ids_3d.shape.as_list()
+
+        def loop_func(idx, grads):
+            sub_grads = self.tracking_gradient_query_encoder_forward(
+                inputs={
+                    "input_ids": input_ids_3d[idx],
+                    "attention_mask": attention_mask_3d[idx]
+                },
+                gradient_cache=gradient_cache[
+                    sub_batch_size * idx: sub_batch_size * (idx + 1)
+                ]
+            )
+            sub_grads = [tf.convert_to_tensor(grad) for grad in sub_grads]
+            grads = [grad + tf.reshape(sub_grad, grad.get_shape())
+                     for grad, sub_grad in zip(grads, sub_grads)]
+            return idx + 1, grads
+
+        idx = tf.constant(0, dtype=tf.int32)
+        init_grads = [tf.zeros_like(var)
+                      for var in self.dual_encoder.query_encoder.trainable_variables]
+        _, grads = tf.while_loop(
+            cond=lambda idx, _: tf.less(idx, multiplier),
+            body=loop_func,
+            loop_vars=(idx, init_grads)
+        )
+
+        return grads
+
+    @tf.function
+    def params_backward_graph_context_encoder(
+        self,
+        input_ids_3d: tf.Tensor,
+        attention_mask_3d: tf.Tensor,
+        gradient_cache: tf.Tensor
+    ):
+        multiplier, sub_batch_size, _ = input_ids_3d.shape.as_list()
+
+        def loop_func(idx, grads):
+            sub_grads = self.tracking_gradient_context_encoder_forward(
+                inputs={
+                    "input_ids": input_ids_3d[idx],
+                    "attention_mask": attention_mask_3d[idx]
+                },
+                gradient_cache=gradient_cache[
+                    sub_batch_size * idx: sub_batch_size * (idx + 1)
+                ]
+            )
+            sub_grads = [tf.convert_to_tensor(grad) for grad in sub_grads]
+            grads = [grad + tf.reshape(sub_grad, grad.get_shape())
+                     for grad, sub_grad in zip(grads, sub_grads)]
+            return idx + 1, grads
+
+        idx = tf.constant(0, dtype=tf.int32)
+        init_grads = [tf.zeros_like(var)
+                      for var in self.dual_encoder.context_encoder.trainable_variables]
         _, grads = tf.while_loop(
             cond=lambda idx, _: tf.less(idx, multiplier),
             body=loop_func,
