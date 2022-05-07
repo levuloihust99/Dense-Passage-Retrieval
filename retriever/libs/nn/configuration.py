@@ -38,7 +38,6 @@ class DualEncoderConfig(CommonConfig):
 
         # data pipeline
         self.pipeline_config_file = 'configs/pipeline_training_config.json'
-        self.regulate_factor = None
 
         # training configurations
         self.learning_rate = 5e-5

@@ -106,19 +106,6 @@ def main():
     logger.info("Creating dataset...")
     start_time = time.perf_counter()
     datasets = get_pipelines(config.pipeline_config)
-    if config.pipeline_config["train_mode"] not in {"pos", "inbatch"}:
-        regulate_factor = (datasets.get("pos_dataset_size") or datasets["inbatch_dataset_size"]) // datasets["poshard_dataset_size"]
-        if "pos_dataset_size" in datasets and "inbatch_dataset_size" in datasets:
-            raise Exception("Cannot combine inbatch and pos training")
-        poshard_dataset_size = datasets.pop("poshard_dataset_size")
-        if "pos_dataset_size" in datasets:
-            pos_dataset_size = datasets.pop("pos_dataset_size")
-            regulate_factor = pos_dataset_size // poshard_dataset_size
-        if "inbatch_dataset_size" in datasets:
-            inbatch_dataset_size = datasets.pop("inbatch_dataset_size")
-            regulate_factor = inbatch_dataset_size // poshard_dataset_size
-    else:
-        regulate_factor = None
     dist_datasets = {
         k: strategy.distribute_datasets_from_function(
             lambda _: datasets[k]
@@ -188,7 +175,6 @@ def main():
 
     # training
     train_config = copy.deepcopy(config)
-    train_config.regulate_factor = regulate_factor
     if not tf.io.gfile.exists(config_dir):
         tf.io.gfile.makedirs(config_dir)
     with tf.io.gfile.GFile(config.config_file, 'w') as writer:

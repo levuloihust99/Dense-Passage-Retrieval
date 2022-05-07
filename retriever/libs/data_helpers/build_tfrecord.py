@@ -8,6 +8,13 @@ from typing import Dict, List, Tuple, Text, Any, Union
 
 from libs.utils.logging import add_color_formater
 from libs.constants import TOKENIZER_MAPPING
+from libs.data_helpers.constants import (
+    TOKENIZER_TYPE,
+    TOKENIZER_PATH,
+    MAX_QUERY_LENGTH,
+    MAX_CONTEXT_LENGTH
+)
+from libs.data_helpers.constants import DataSourceType
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -160,7 +167,7 @@ def create_poshard_example(
     return tf.train.Example(features=tf.train.Features(feature=features))
 
 
-def create_nonhard_example(
+def create_hard_none_example(
     item: Dict[Text, List[Union[Text, Dict[Text, Text]]]],
     tokenizer,
     max_context_length: int,
@@ -207,17 +214,18 @@ def write_examples(
             )
 
     example_writer.close()
-    logger.info("Written {} examples".format(idx + 1))    
+    logger.info("Written {} examples".format(idx + 1))
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config-file", default="configs/pipeline_training_config.json")
-    parser.add_argument("--data-path", default="data/v2/train_data.json")
+    parser.add_argument("--data-path", required=True)
     parser.add_argument("--num-examples-per-file", default=1000, type=int)
-    parser.add_argument("--output-dir", default="data/v2/tfrecord/train/pos")
-    parser.add_argument("--pipeline-type", choices=["pos", "poshard", "hard"], default="pos")
+    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--data-type", choices=[DataSourceType.ALL_POS_ONLY,
+                        DataSourceType.HARD_ONLY, DataSourceType.HARD_NONE], required=True)
     args = parser.parse_args()
 
     with open(args.config_file, "r") as reader:
@@ -225,60 +233,43 @@ def main():
     with open(args.data_path, "r") as reader:
         data = json.load(reader)
 
-    tokenizer = TOKENIZER_MAPPING[pipeline_config["tokenizer_type"]].from_pretrained(
-        pipeline_config["tokenizer_path"]
+    tokenizer = TOKENIZER_MAPPING[pipeline_config[TOKENIZER_TYPE]].from_pretrained(
+        pipeline_config[TOKENIZER_PATH]
     )
 
-    if args.pipeline_type == "pos":
+    if args.data_type == DataSourceType.ALL_POS_ONLY:
         write_examples(
             data=data,
             output_dir=args.output_dir,
             tokenizer=tokenizer,
             create_example_func=create_pos_example,
             num_examples_per_file=args.num_examples_per_file,
-            max_query_length=pipeline_config["max_query_length"],
-            max_context_length=pipeline_config["max_context_length"]
+            max_query_length=pipeline_config[MAX_QUERY_LENGTH],
+            max_context_length=pipeline_config[MAX_CONTEXT_LENGTH]
         )
-    elif args.pipeline_type == "poshard":
-        only_hard_data = [item for item in data if len(item["hardneg_contexts"]) > 0]
-        if only_hard_data:
+    elif args.data_type == DataSourceType.HARD_ONLY:
+        hard_only_data = [item for item in data if len(item["hardneg_contexts"]) > 0]
+        if hard_only_data:
             write_examples(
-                data=only_hard_data,
+                data=hard_only_data,
                 output_dir=args.output_dir,
                 tokenizer=tokenizer,
                 create_example_func=create_poshard_example,
                 num_examples_per_file=args.num_examples_per_file,
-                max_query_length=pipeline_config["max_query_length"],
-                max_context_length=pipeline_config["max_context_length"],
+                max_query_length=pipeline_config[MAX_QUERY_LENGTH],
+                max_context_length=pipeline_config[MAX_CONTEXT_LENGTH],
             )
-    else:
-        only_hard_data = []
-        non_hard_data = []
-        for item in data:
-            if len(item["hardneg_contexts"]) > 0:
-                only_hard_data.append(item)
-            else:
-                non_hard_data.append(item)
-
-        if only_hard_data:
+    elif args.data_type == DataSourceType.HARD_NONE:
+        hard_none_data = [item for item in data if len(item["hardneg_contexts"]) == 0]
+        if hard_none_data:
             write_examples(
-                data=only_hard_data,
-                output_dir=os.path.join(args.output_dir, "onlyhard"),
+                data=hard_none_data,
+                output_dir=args.output_dir,
                 tokenizer=tokenizer,
-                create_example_func=create_poshard_example,
+                create_example_func=create_hard_none_example,
                 num_examples_per_file=args.num_examples_per_file,
-                max_query_length=pipeline_config["max_query_length"],
-                max_context_length=pipeline_config["max_context_length"],
-            )
-        if non_hard_data:
-            write_examples(
-                data=non_hard_data,
-                output_dir=os.path.join(args.output_dir, "nonhard"),
-                tokenizer=tokenizer,
-                create_example_func=create_nonhard_example,
-                num_examples_per_file=args.num_examples_per_file,
-                max_query_length=pipeline_config["max_query_length"],
-                max_context_length=pipeline_config["max_context_length"]
+                max_query_length=pipeline_config[MAX_QUERY_LENGTH],
+                max_context_length=pipeline_config[MAX_CONTEXT_LENGTH]
             )
 
 
