@@ -212,6 +212,7 @@ class DualEncoderTrainer(object):
                                                 self.config.num_train_steps)
             log_string += "\nTime elapsed: {}s".format(
                 time.perf_counter() - self._mark_time)
+            log_string += "\nNum graphs: {}".format(self.get_num_graphs())
             log_string += "\nLoss:"
             self._mark_time = time.perf_counter()
             log_string += "\n\t- {}{}: {} *\n".format(
@@ -222,6 +223,12 @@ class DualEncoderTrainer(object):
             current_state_as_string = "".join(current_state_as_string)
             log_string += current_state_as_string
             logger.info(log_string)
+    
+    def get_num_graphs(self):
+        num_graphs = 0
+        for g in self.graph_cache.values():
+            num_graphs += len(g._list_all_concrete_functions())
+        return num_graphs
 
     def save_checkpoint(self):
         """Save checkpoint."""
@@ -246,15 +253,12 @@ class DualEncoderTrainer(object):
         for step in range(trained_steps, self.config.num_train_steps):
             pipeline_type, items = self._fetch_items(step)
             step_fn = self.get_step_fn(pipeline_type)
-            loss, grads = self.accumulate_step(self.get_step_fn(pipeline_type, "gc"), items)
-            self.log(step, pipeline_type, loss)
-            loss, grads = self.accumulate_step(self.get_step_fn(pipeline_type, "base"), items)
-            self.log(step, pipeline_type, loss)
+            loss, grads = self.accumulate_step(step_fn, items)
             self.strategy.run(
                 self.update_params,
                 args=(grads,)
             )
-            # self.log(step, pipeline_type, loss)
+            self.log(step, pipeline_type, loss)
 
     def inbatch_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
@@ -292,7 +296,7 @@ class DualEncoderTrainer(object):
                 query_attention_mask=query_attention_mask,
                 context_input_ids=positive_context_input_ids,
                 context_attention_mask=positive_context_attention_mask,
-                training=False
+                training=True
             )
 
             loss = self.loss_calculator.compute(
@@ -475,13 +479,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["positive_context/input_ids"],
                 context_attention_mask=grouped_data["positive_context/attention_mask"],
-                training=False
+                training=True
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -732,13 +736,13 @@ class DualEncoderTrainer(object):
                 input_ids=query_input_ids,
                 attention_mask=query_attention_mask,
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             positive_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=positive_context_input_ids,
                 attention_mask=positive_context_attention_mask,
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
 
             # forward hard negative contexts with mask
@@ -746,7 +750,7 @@ class DualEncoderTrainer(object):
                 input_ids=hardneg_context_input_ids,
                 attention_mask=hardneg_context_attention_mask,
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             hardneg_context_embedding = tf.reshape(
                 hardneg_context_embedding,
@@ -1037,13 +1041,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["hardneg_context/input_ids"],
                 context_attention_mask=grouped_data["hardneg_context/attention_mask"],
-                training=False
+                training=True
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -1562,7 +1566,7 @@ class DualEncoderTrainer(object):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 return_dict=True,
-                training=False
+                training=True
             )
             sequence_output = outputs.last_hidden_state
             pooled_output = sequence_output[:, 0, :]
@@ -1584,7 +1588,7 @@ class DualEncoderTrainer(object):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     return_dict=True,
-                    training=False
+                    training=True
                 )
                 sequence_output = outputs.last_hidden_state
                 pooled_output = sequence_output[:, 0, :]
