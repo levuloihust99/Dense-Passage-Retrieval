@@ -40,7 +40,6 @@ def main():
     parser.add_argument("--pipeline-config-file")
     # training params
     parser.add_argument("--learning-rate", type=float)
-    parser.add_argument("--eval-batch-size", type=int)
     parser.add_argument("--num-train-steps", type=int)
     # optimization
     parser.add_argument("--lr-decay-power", type=float)

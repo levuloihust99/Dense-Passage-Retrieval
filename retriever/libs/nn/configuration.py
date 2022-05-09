@@ -37,11 +37,10 @@ class DualEncoderConfig(CommonConfig):
         self.sim_score = 'dot_product'
 
         # data pipeline
-        self.pipeline_config_file = 'configs/pipeline_training_config.json'
+        self.pipeline_config_file = 'configs/pipeline_config.json'
 
         # training configurations
         self.learning_rate = 5e-5
-        self.eval_batch_size = 256
         self.num_train_steps = 10000
 
         # optimization

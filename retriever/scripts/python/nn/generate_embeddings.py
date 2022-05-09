@@ -6,7 +6,6 @@ from typing import Text, Dict, List, Union, Literal
 import tensorflow as tf
 
 from libs.data_helpers.corpus_data import load_corpus_dataset
-from libs.nn.configuration import DualEncoderConfig
 from libs.constants import MODEL_MAPPING
 from libs.nn.modeling import DualEncoder
 from libs.utils.logging import add_color_formater
