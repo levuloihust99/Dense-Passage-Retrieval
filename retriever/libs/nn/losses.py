@@ -8,7 +8,8 @@ class LossCalculator(object):
         inputs: Dict[Text, tf.Tensor],
         sim_func: Literal["cosine", "dot_product"],
         type: Literal["pos", "hard", "poshard"],
-        duplicate_mask: Optional[tf.Tensor] = None
+        duplicate_mask: Optional[tf.Tensor] = None,
+        **kwargs
     ):
         if sim_func == "cosine":
             inputs = {k: self.normalize(v) for k, v in inputs.items()}
@@ -17,7 +18,7 @@ class LossCalculator(object):
                 query_embedding=inputs["query_embedding"],
                 context_embedding=inputs["positive_context_embedding"],
                 negative_context_embedding=inputs["negative_context_embedding"],
-                duplicate_mask=duplicate_mask
+                duplicate_mask=duplicate_mask,
             )
         elif type == "hard":
             return self.compute_contrastive_neg(
@@ -36,8 +37,9 @@ class LossCalculator(object):
         elif type == "inbatch":
             return self.compute_inbatch(
                 query_embedding=inputs["query_embedding"],
-                positive_context_embedding=inputs["positive_context_embedding"],
-                duplicate_mask=duplicate_mask
+                context_embedding=inputs["context_embedding"],
+                duplicate_mask=duplicate_mask,
+                hardneg_mask=inputs["hardneg_mask"]
             )
         else:
             raise Exception("Type '{}' is not supported.".format(type))
@@ -96,13 +98,17 @@ class LossCalculator(object):
     def compute_inbatch(
         self,
         query_embedding: tf.Tensor,
-        positive_context_embedding: tf.Tensor,
-        duplicate_mask: tf.Tensor
+        context_embedding: tf.Tensor,
+        duplicate_mask: tf.Tensor,
+        hardneg_mask: tf.Tensor
     ):
         batch_size, hidden_size = query_embedding.shape.as_list()
-        similarity_matrix = tf.matmul(query_embedding, positive_context_embedding, transpose_b=True)
+        similarity_matrix = tf.matmul(query_embedding, context_embedding, transpose_b=True)
+        hardneg_mask_replicate = tf.tile(tf.expand_dims(tf.reshape(
+            hardneg_mask, [-1]), axis=0), multiples=[batch_size, 1])
+        mask = tf.concat([duplicate_mask, hardneg_mask_replicate], axis=1)
         similarity_matrix_masked = tf.where(
-            tf.cast(duplicate_mask, dtype=tf.bool),
+            tf.cast(mask, dtype=tf.bool),
             similarity_matrix, -1e9
         )
         logits = tf.nn.log_softmax(similarity_matrix_masked, axis=-1)

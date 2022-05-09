@@ -286,23 +286,25 @@ class DualEncoderTrainer(object):
 
         query_input_ids = item["question/input_ids"]
         query_attention_mask = item["question/attention_mask"]
-        positive_context_input_ids = item["positive_context/input_ids"]
-        positive_context_attention_mask = item["positive_context/attention_mask"]
+        context_input_ids = item["context/input_ids"]
+        context_attention_mask = item["context/attention_mask"]
         duplicate_mask = item["duplicate_mask"]
+        hardneg_mask = item["hardneg_mask"]
 
         with tf.GradientTape() as tape:
-            query_embedding, positive_context_embedding = self.dual_encoder(
+            query_embedding, context_embedding = self.dual_encoder(
                 query_input_ids=query_input_ids,
                 query_attention_mask=query_attention_mask,
-                context_input_ids=positive_context_input_ids,
-                context_attention_mask=positive_context_attention_mask,
-                training=True
+                context_input_ids=context_input_ids,
+                context_attention_mask=context_attention_mask,
+                training=False
             )
 
             loss = self.loss_calculator.compute(
                 inputs={
                     "query_embedding": query_embedding,
-                    "positive_context_embedding": positive_context_embedding,
+                    "context_embedding": context_embedding,
+                    "hardneg_mask": hardneg_mask
                 },
                 sim_func=self.config.sim_score,
                 type=INBATCH_PIPELINE_NAME,
@@ -327,18 +329,19 @@ class DualEncoderTrainer(object):
         # possibly distributed values
         query_input_ids = item["question/input_ids"]
         query_attention_mask = item["question/attention_mask"]
-        positive_context_input_ids = item["positive_context/input_ids"]
-        positive_context_attention_mask = item["positive_context/attention_mask"]
+        context_input_ids = item["context/input_ids"]
+        context_attention_mask = item["context/attention_mask"]
         duplicate_mask = item["duplicate_mask"]
+        hardneg_mask = item["hardneg_mask"]
 
         is_parallel_training = isinstance(
             query_input_ids, tf.distribute.DistributedValues)
         if is_parallel_training:
             query_batch_size = query_input_ids.values[0].shape.as_list()[0]
-            positive_context_batch_size = positive_context_input_ids.values[0].shape.as_list()[0]
+            context_batch_size = context_input_ids.values[0].shape.as_list()[0]
         else:
             query_batch_size = query_input_ids.shape.as_list()[0]
-            positive_context_batch_size = positive_context_input_ids.shape.as_list()[0]
+            context_batch_size = context_attention_mask.shape.as_list()[0]
 
         # no tracking gradient forward
         query_sub_batch_size = \
@@ -359,15 +362,15 @@ class DualEncoderTrainer(object):
             self.config.pipeline_config[GRADIENT_CACHE_CONFIG][CONTEXT_SUB_BATCH]
 
         context_batch_forward_graph = self.get_batch_forward_graph(
-            batch_size=positive_context_batch_size,
+            batch_size=context_batch_size,
             sub_batch_size=context_sub_batch_size,
             is_query_encoder=False
         )
-        positive_context_input_ids_3d, positive_context_attention_mask_3d, \
-            positive_context_embedding_tensor = \
+        context_input_ids_3d, context_attention_mask_3d, \
+            context_embedding_tensor = \
             self.strategy.run(
                 context_batch_forward_graph,
-                args=(positive_context_input_ids, positive_context_attention_mask)
+                args=(context_input_ids, context_attention_mask)
             )
 
         # backward from loss to embeddings
@@ -378,19 +381,19 @@ class DualEncoderTrainer(object):
                                for q in query_embedding_gather]
             query_embedding = PerReplica(query_embedding)
             # positive context
-            positive_context_embedding_gather = positive_context_embedding_tensor.values
-            positive_context_embedding = [
-                c[:positive_context_batch_size] for c in positive_context_embedding_gather]
-            positive_context_embedding = PerReplica(positive_context_embedding)
+            context_embedding_gather = context_embedding_tensor.values
+            context_embedding = [
+                c[:context_batch_size] for c in context_embedding_gather]
+            context_embedding = PerReplica(context_embedding)
         else:
             query_embedding = query_embedding_tensor[:query_batch_size]
-            positive_context_embedding = positive_context_embedding_tensor[
-                :positive_context_batch_size]
+            context_embedding = context_embedding_tensor[
+                :context_batch_size]
 
         loss, embedding_grads = self.strategy.run(
             self.embedding_backward_inbatch,
             args=(query_embedding,
-                  positive_context_embedding, duplicate_mask)
+                  context_embedding, duplicate_mask, hardneg_mask)
         )
 
         # backward from embeddings to parameters
@@ -417,29 +420,29 @@ class DualEncoderTrainer(object):
                   query_embedding_grads_padded)
         )
 
-        positive_context_embedding_grads = embedding_grads["context"]
-        positive_context_multiplier = (
-            positive_context_batch_size - 1) // context_sub_batch_size + 1
-        positive_context_padding = positive_context_multiplier * \
-            context_sub_batch_size - positive_context_batch_size
+        context_embedding_grads = embedding_grads["context"]
+        context_multiplier = (
+            context_batch_size - 1) // context_sub_batch_size + 1
+        context_padding = context_multiplier * \
+            context_sub_batch_size - context_batch_size
         if is_parallel_training:
-            positive_context_embedding_grads_gather = positive_context_embedding_grads.values
-            positive_context_embedding_grads_padded = [
-                tf.pad(c_grad, [[0, positive_context_padding], [0, 0]])
-                for c_grad in positive_context_embedding_grads_gather
+            context_embedding_grads_gather = context_embedding_grads.values
+            context_embedding_grads_padded = [
+                tf.pad(c_grad, [[0, context_padding], [0, 0]])
+                for c_grad in context_embedding_grads_gather
             ]
-            positive_context_embedding_grads_padded = PerReplica(
-                positive_context_embedding_grads_padded)
+            context_embedding_grads_padded = PerReplica(
+                context_embedding_grads_padded)
         else:
-            positive_context_embedding_grads_padded = tf.pad(
-                positive_context_embedding_grads,
-                [[0, positive_context_padding], [0, 0]]
+            context_embedding_grads_padded = tf.pad(
+                context_embedding_grads,
+                [[0, context_padding], [0, 0]]
             )
         context_params_backward_graph = self.get_params_backward_graph(False)
         context_grads = self.strategy.run(
             context_params_backward_graph,
-            args=(positive_context_input_ids_3d, positive_context_attention_mask_3d,
-                  positive_context_embedding_grads_padded)
+            args=(context_input_ids_3d, context_attention_mask_3d,
+                  context_embedding_grads_padded)
         )
         grads = query_grads + context_grads  # concatenate list
 
@@ -479,13 +482,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["positive_context/input_ids"],
                 context_attention_mask=grouped_data["positive_context/attention_mask"],
-                training=True
+                training=False
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -736,13 +739,13 @@ class DualEncoderTrainer(object):
                 input_ids=query_input_ids,
                 attention_mask=query_attention_mask,
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             positive_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=positive_context_input_ids,
                 attention_mask=positive_context_attention_mask,
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
 
             # forward hard negative contexts with mask
@@ -750,7 +753,7 @@ class DualEncoderTrainer(object):
                 input_ids=hardneg_context_input_ids,
                 attention_mask=hardneg_context_attention_mask,
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             hardneg_context_embedding = tf.reshape(
                 hardneg_context_embedding,
@@ -1041,13 +1044,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["hardneg_context/input_ids"],
                 context_attention_mask=grouped_data["hardneg_context/attention_mask"],
-                training=True
+                training=False
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -1256,12 +1259,13 @@ class DualEncoderTrainer(object):
 
         return self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None), grads
 
-    @tf.function
+    # @tf.function
     def embedding_backward_inbatch(
         self,
         query_embedding: tf.Tensor,
         context_embedding: tf.Tensor,
-        duplicate_mask: tf.Tensor
+        duplicate_mask: tf.Tensor,
+        hardneg_mask: tf.Tensor
     ):
         with tf.GradientTape() as tape:
             tape.watch(query_embedding)
@@ -1269,10 +1273,11 @@ class DualEncoderTrainer(object):
             loss = self.loss_calculator.compute(
                 inputs={
                     "query_embedding": query_embedding,
-                    "positive_context_embedding": context_embedding,
+                    "context_embedding": context_embedding,
+                    "hardneg_mask": hardneg_mask
                 },
                 sim_func=self.config.sim_score,
-                type="inbatch",
+                type=INBATCH_PIPELINE_NAME,
                 duplicate_mask=duplicate_mask
             )
             loss = loss / self.strategy.num_replicas_in_sync
@@ -1305,7 +1310,7 @@ class DualEncoderTrainer(object):
                     "negative_context_embedding": negative_context_embedding
                 },
                 sim_func=self.config.sim_score,
-                type="pos",
+                type=POS_PIPELINE_NAME,
                 duplicate_mask=duplicate_mask
             )
             loss = loss / self.strategy.num_replicas_in_sync
@@ -1340,7 +1345,7 @@ class DualEncoderTrainer(object):
                     "hardneg_mask": hardneg_mask
                 },
                 sim_func=self.config.sim_score,
-                type="poshard"
+                type=POSHARD_PIPELINE_NAME
             )
             loss = loss / self.strategy.num_replicas_in_sync
 
@@ -1373,7 +1378,7 @@ class DualEncoderTrainer(object):
                     "negative_context_embedding": negative_context_embedding
                 },
                 sim_func=self.config.sim_score,
-                type="hard",
+                type=HARD_PIPELINE_NAME,
                 duplicate_mask=duplicate_mask
             )
             loss = loss / self.strategy.num_replicas_in_sync
@@ -1566,7 +1571,7 @@ class DualEncoderTrainer(object):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 return_dict=True,
-                training=True
+                training=False
             )
             sequence_output = outputs.last_hidden_state
             pooled_output = sequence_output[:, 0, :]
@@ -1588,7 +1593,7 @@ class DualEncoderTrainer(object):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     return_dict=True,
-                    training=True
+                    training=False
                 )
                 sequence_output = outputs.last_hidden_state
                 pooled_output = sequence_output[:, 0, :]

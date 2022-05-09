@@ -1,6 +1,7 @@
 import json
 import glob
 import os
+from re import M
 from typing import Text, List, Dict, Tuple, Any
 from tqdm import tqdm
 import tensorflow as tf
@@ -19,6 +20,8 @@ from libs.data_helpers.constants import (
     LIMIT_HARDNEGS,
     TRAIN_MODE,
     USE_HARD_NONE,
+    USE_HARDNEG_INBATCH,
+    USE_NUM_HARDNEGS_INBATCH,
     DataSourceType
 )
 
@@ -709,13 +712,17 @@ class InbatchPipeline(Pipeline):
         max_context_length: int,
         forward_batch_size: int,
         data_source: Text,
-        deterministic: bool = False # for debug
+        deterministic: bool = False, # for debug
+        use_hardneg: bool = False,
+        use_num_hardnegs: int = 1
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
         self.forward_batch_size = forward_batch_size
         self.data_source = data_source
         self.deterministic = deterministic
+        self.use_hardneg = use_hardneg
+        self.use_num_hardnegs = use_num_hardnegs
         self.dataset_size = -1
 
         self.feature_description = {
@@ -725,6 +732,11 @@ class InbatchPipeline(Pipeline):
             "positive_context/input_ids": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
             "positive_context/attention_mask": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
         }
+        if self.use_hardneg:
+            self.feature_description.update({
+                "hardneg_context/input_ids": tf.io.FixedLenFeature(shape=[], dtype=tf.string),
+                "hardneg_context/attention_mask": tf.io.FixedLenFeature(shape=[], dtype=tf.string)
+            })
 
     def parse_ex(self, ex):
         return tf.io.parse_example(ex, self.feature_description)
@@ -738,7 +750,13 @@ class InbatchPipeline(Pipeline):
             item["positive_context/input_ids"], out_type=tf.int32)
         positive_contexts_attention_mask = tf.io.parse_tensor(
             item["positive_context/attention_mask"], out_type=tf.int32)
-        return {
+        if self.use_hardneg:
+            hardneg_context_input_ids = tf.io.parse_tensor(
+                item["hardneg_context/input_ids"], out_type=tf.int32)
+            hardneg_context_attention_mask = tf.io.parse_tensor(
+                item["hardneg_context/attention_mask"], out_type=tf.int32)
+
+        ret = {
             "sample_id": item["sample_id"],
             "question/input_ids": tf.reshape(
                 questions_input_ids, [-1, self.max_query_length]),
@@ -749,6 +767,14 @@ class InbatchPipeline(Pipeline):
             "positive_context/attention_mask": tf.reshape(
                 positive_contexts_attention_mask, [-1, self.max_context_length]),
         }
+        if self.use_hardneg:
+            ret.update({
+                "hardneg_context/input_ids": tf.reshape(hardneg_context_input_ids,
+                                                        [-1, self.max_context_length]),
+                "hardneg_context/attention_mask": tf.reshape(hardneg_context_attention_mask,
+                                                             [-1, self.max_context_length])
+            })
+        return ret
 
     @staticmethod
     def sample_attribute(input_ids, attention_mask):
@@ -759,19 +785,37 @@ class InbatchPipeline(Pipeline):
         attention_mask_sampled = compact_sampled[:, 1]
         return input_ids_sampled, attention_mask_sampled
 
-    @staticmethod
-    def sample(item):
+    def sample(self, item):
         question_input_ids, question_attention_mask = InbatchPipeline.sample_attribute(
             item["question/input_ids"], item["question/attention_mask"])
         positive_context_input_ids, positive_context_attention_mask = InbatchPipeline.sample_attribute(
             item["positive_context/input_ids"], item["positive_context/attention_mask"])
-        return {
+        if self.use_hardneg:
+            hardneg_context_input_ids = item["hardneg_context/input_ids"]
+            hardneg_context_attention_mask = item["hardneg_context/attention_mask"]
+            num_actual_hardnegs = tf.shape(hardneg_context_input_ids)[0]
+            hardneg_mask = tf.concat(
+                [tf.ones([num_actual_hardnegs], dtype=tf.int32), tf.zeros([self.use_num_hardnegs], dtype=tf.int32)],
+                axis=0)[:self.use_num_hardnegs]
+            padding = tf.zeros([self.use_num_hardnegs, self.max_context_length], dtype=tf.int32)
+            hardneg_context_input_ids = tf.concat([hardneg_context_input_ids, padding], axis=0)[:self.use_num_hardnegs]
+            hardneg_context_attention_mask = tf.concat([hardneg_context_attention_mask, padding], axis=0)[:self.use_num_hardnegs]
+
+        ret = {
             "sample_id": item["sample_id"],
             "question/input_ids": question_input_ids,
             "question/attention_mask": question_attention_mask,
             "positive_context/input_ids": positive_context_input_ids,
             "positive_context/attention_mask": positive_context_attention_mask,
+            "hardneg_mask": tf.zeros([0], dtype=tf.int32)
         }
+        if self.use_hardneg:
+            ret.update({
+                "hardneg_context/input_ids": hardneg_context_input_ids,
+                "hardneg_context/attention_mask": hardneg_context_attention_mask,
+                "hardneg_mask": hardneg_mask
+            })
+        return ret
     
     @staticmethod
     def compute_duplicate_mask(item):
@@ -783,6 +827,41 @@ class InbatchPipeline(Pipeline):
         duplicate_mask = duplicate_mask | tf.eye(B, dtype=tf.bool)
         duplicate_mask = tf.cast(duplicate_mask, dtype=tf.int32)
         return {**item, "duplicate_mask": duplicate_mask}
+    
+    def flatten(self, item):
+        positive_context_input_ids = item["positive_context/input_ids"]
+        positive_context_attention_mask = item["positive_context/attention_mask"]
+        hardneg_context_input_ids = item["hardneg_context/input_ids"]
+        hardneg_context_attention_mask = item["hardneg_context/attention_mask"]
+        
+        compact_input_ids = tf.concat(
+            [positive_context_input_ids,
+                tf.reshape(hardneg_context_input_ids, [-1, self.max_context_length])],
+            axis=0
+        )
+        compact_attention_mask = tf.concat(
+            [positive_context_attention_mask,
+                tf.reshape(hardneg_context_attention_mask, [-1, self.max_context_length])],
+            axis=0
+        )
+        return {
+            "sample_id": item["sample_id"],
+            "question/input_ids": item["question/input_ids"],
+            "question/attention_mask": item["question/attention_mask"],
+            "context/input_ids": compact_input_ids,
+            "context/attention_mask": compact_attention_mask,
+            "hardneg_mask": item["hardneg_mask"]
+        }
+    
+    def rename(self, item):
+        return {
+            "sample_id": item["sample_id"],
+            "question/input_ids": item["question/input_ids"],
+            "question/attention_mask": item["question/attention_mask"],
+            "context/input_ids": item["positive_context/input_ids"],
+            "context/attention_mask": item["positive_context/attention_mask"],
+            "hardneg_mask": item["hardneg_mask"]
+        }
 
     def build(self):
         tfrecord_files = sorted(tf.io.gfile.listdir(self.data_source))
@@ -814,6 +893,10 @@ class InbatchPipeline(Pipeline):
             dataset = dataset.shuffle(buffer_size=10000)
         dataset = dataset.repeat()
         dataset = dataset.batch(self.forward_batch_size)
+        if self.use_hardneg:
+            dataset = dataset.map(self.flatten, num_parallel_calls=tf.data.AUTOTUNE)
+        else:
+            dataset = dataset.map(self.rename, num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.map(InbatchPipeline.compute_duplicate_mask, num_parallel_calls=tf.data.AUTOTUNE)
         return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
@@ -891,8 +974,10 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             max_query_length=pipeline_config[MAX_QUERY_LENGTH],
             max_context_length=pipeline_config[MAX_CONTEXT_LENGTH],
             forward_batch_size=pipeline_config[INBATCH_PIPELINE_NAME][FORWARD_BATCH_SIZE],
-            data_source=pipeline_config[DATA_SOURCE][DataSourceType.ALL_POS_ONLY],
-            deterministic=pipeline_config[INBATCH_PIPELINE_NAME][DETERMINISTIC]
+            data_source=pipeline_config[DATA_SOURCE][DataSourceType.ALL],
+            deterministic=pipeline_config[INBATCH_PIPELINE_NAME][DETERMINISTIC],
+            use_hardneg=pipeline_config[INBATCH_PIPELINE_NAME][USE_HARDNEG_INBATCH],
+            use_num_hardnegs=pipeline_config[INBATCH_PIPELINE_NAME][USE_NUM_HARDNEGS_INBATCH]
         )
         datasets[INBATCH_PIPELINE_NAME] = inbatch_pipeline.build()
 

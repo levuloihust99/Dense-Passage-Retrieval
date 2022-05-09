@@ -84,6 +84,60 @@ def create_feature(inputs):
     }
 
 
+def create_proper_example(
+    item: Dict[Text, List[Union[Text, Dict[Text, Text]]]],
+    tokenizer,
+    max_query_length: int,
+    max_context_length: int,
+    **kwargs
+):
+    # question processing
+    questions_tokenized = tokenizer(
+        item["questions"],
+        padding='max_length',
+        max_length=max_query_length,
+        truncation=True
+    )
+    questions_features = create_feature(questions_tokenized)
+
+    # positive contexts processing
+    positive_contexts_tokenized = tokenize_batched_contexts(
+        tokenizer,
+        item["positive_contexts"],
+        max_context_length=max_context_length
+    )
+    positive_contexts_feature = create_feature(positive_contexts_tokenized)
+
+    # hard negative contexts processing
+    if len(item["hardneg_contexts"]) > 0:
+        hardneg_contexts_tokenized = tokenize_batched_contexts(
+            tokenizer,
+            item["hardneg_contexts"],
+            max_context_length=max_context_length
+        )
+        hardneg_contexts_feature = create_feature(hardneg_contexts_tokenized)
+    else:
+        pseudo_tensor = tf.zeros([0, max_context_length], dtype=tf.int32)
+        pseudo_tensor_serialized = tf.io.serialize_tensor(pseudo_tensor)
+        pseudo_feature = tf.train.Feature(bytes_list=tf.train.BytesList(value=[pseudo_tensor_serialized.numpy()]))
+        hardneg_contexts_feature = {
+            "input_ids_feature": pseudo_feature,
+            "attention_mask_feature": pseudo_feature
+        }
+
+    features = {
+        'sample_id': tf.train.Feature(int64_list=tf.train.Int64List(value=[item["sample_id"]])),
+        'question/input_ids': questions_features["input_ids_feature"],
+        'question/attention_mask': questions_features["attention_mask_feature"],
+        'positive_context/input_ids': positive_contexts_feature["input_ids_feature"],
+        'positive_context/attention_mask': positive_contexts_feature["attention_mask_feature"],
+        'hardneg_context/input_ids': hardneg_contexts_feature["input_ids_feature"],
+        'hardneg_context/attention_mask': hardneg_contexts_feature["attention_mask_feature"],
+        'num_hardneg': tf.train.Feature(int64_list=tf.train.Int64List(value=[len(item["hardneg_contexts"])]))
+    }
+
+    return tf.train.Example(features=tf.train.Features(feature=features))
+
 def create_pos_example(
     item: Dict[Text, List[Union[Text, Dict[Text, Text]]]],
     tokenizer,
@@ -150,8 +204,6 @@ def create_poshard_example(
         max_context_length=max_context_length
     )
     hardneg_contexts_feature = create_feature(hardneg_contexts_tokenized)
-
-    # hard negative masking
 
     features = {
         'sample_id': tf.train.Feature(int64_list=tf.train.Int64List(value=[item["sample_id"]])),
@@ -224,7 +276,7 @@ def main():
     parser.add_argument("--data-path", required=True)
     parser.add_argument("--num-examples-per-file", default=1000, type=int)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--data-type", choices=[DataSourceType.ALL_POS_ONLY,
+    parser.add_argument("--data-type", choices=[DataSourceType.ALL_POS_ONLY, DataSourceType.ALL,
                         DataSourceType.HARD_ONLY, DataSourceType.HARD_NONE], required=True)
     args = parser.parse_args()
 
@@ -237,6 +289,16 @@ def main():
         pipeline_config[TOKENIZER_PATH]
     )
 
+    if args.data_type == DataSourceType.ALL:
+        write_examples(
+            data=data,
+            output_dir=args.output_dir,
+            tokenizer=tokenizer,
+            create_example_func=create_proper_example,
+            num_examples_per_file=args.num_examples_per_file,
+            max_query_length=pipeline_config[MAX_QUERY_LENGTH],
+            max_context_length=pipeline_config[MAX_CONTEXT_LENGTH]
+        )
     if args.data_type == DataSourceType.ALL_POS_ONLY:
         write_examples(
             data=data,
