@@ -1,10 +1,15 @@
+import multiprocessing
+import queue
 import tensorflow as tf
 import os
 import json
+import jsonlines
 import argparse
 import logging
 from tqdm import tqdm
 from typing import Dict, List, Tuple, Text, Any, Union
+from functools import partial
+from multiprocessing import Process, Pool as ProcessPool, Queue
 
 from libs.utils.logging import add_color_formater
 from libs.constants import TOKENIZER_MAPPING
@@ -269,26 +274,110 @@ def write_examples(
     logger.info("Written {} examples".format(idx + 1))
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config-file", default="configs/pipeline_training_config.json")
-    parser.add_argument("--data-path", required=True)
-    parser.add_argument("--num-examples-per-file", default=1000, type=int)
-    parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--data-type", choices=[DataSourceType.ALL_POS_ONLY, DataSourceType.ALL,
-                        DataSourceType.HARD_ONLY, DataSourceType.HARD_NONE], required=True)
-    args = parser.parse_args()
+def worker_job(from_master_queue, to_master_queue):
+    while True:
+        item = from_master_queue.get()
+        example = create_example_func(item)
+        to_master_queue.put(example)
 
-    with open(args.config_file, "r") as reader:
-        pipeline_config = json.load(reader)
-    with open(args.data_path, "r") as reader:
-        data = json.load(reader)
 
-    tokenizer = TOKENIZER_MAPPING[pipeline_config[TOKENIZER_TYPE]].from_pretrained(
-        pipeline_config[TOKENIZER_PATH]
+def feed_process(feed_queues):
+    num_jobs = args.num_processes
+    idx = 0
+    for item in data:
+        if (args.data_type == DataSourceType.HARD_ONLY and len(item["hardneg_contexts"]) == 0) \
+            or (args.data_type == DataSourceType.HARD_NONE and len(item["hardneg_contexts"]) > 0):
+            continue
+        queue_idx = idx % num_jobs
+        idx += 1
+        feed_queues[queue_idx].put(item)
+
+
+def fetch_process(fetch_queues):
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+
+    idx = 0
+    counter = 0
+    example_writer = tf.io.TFRecordWriter(
+        os.path.join(args.output_dir, 'data_{:03d}.tfrecord'.format(counter))
     )
+    is_done = False
+    while not is_done:
+        for q in fetch_queues:
+            try:
+                example = q.get(timeout=10)
+            except queue.Empty:
+                is_done = True
+                break
+            example_writer.write(example.SerializeToString())
+            if (idx + 1) % args.num_examples_per_file == 0:
+                example_writer.close()
+                logger.info("Written {} examples".format(idx + 1))
+                counter += 1
+                example_writer = tf.io.TFRecordWriter(
+                    os.path.join(args.output_dir, 'data_{:03d}.tfrecord'.format(counter))
+                )
+            idx += 1
 
+    example_writer.close()
+    logger.info("Written {} examples".format(idx))
+
+
+def parallel_processing():
+    num_jobs = args.num_processes
+    if num_jobs < 2:
+        sequential_processing()
+        return
+
+    global create_example_func
+    if args.data_type == DataSourceType.ALL:
+        create_example_func = partial(
+            create_proper_example,
+            tokenizer=tokenizer,
+            max_query_length=pipeline_config[MAX_QUERY_LENGTH], 
+            max_context_length=pipeline_config[MAX_CONTEXT_LENGTH])
+    elif args.data_type == DataSourceType.ALL_POS_ONLY:
+        create_example_func = partial(
+            create_pos_example,
+            tokenizer=tokenizer,
+            max_query_length=pipeline_config[MAX_QUERY_LENGTH],
+            max_context_length=pipeline_config[MAX_CONTEXT_LENGTH])
+    elif args.data_type == DataSourceType.HARD_ONLY:
+        create_example_func = partial(
+            create_poshard_example,
+            tokenizer=tokenizer,
+            max_query_length=pipeline_config[MAX_QUERY_LENGTH],
+            max_context_length=pipeline_config[MAX_CONTEXT_LENGTH])
+    elif args.data_type == DataSourceType.HARD_NONE:
+        create_example_func = partial(
+            create_hard_none_example,
+            tokenizer=tokenizer,
+            max_query_length=pipeline_config[MAX_QUERY_LENGTH])
+    else:
+        raise Exception("Data type `{}` is not supported.".format(args.data_type))
+
+    feed_queues = [Queue() for _ in range(num_jobs)]
+    fetch_queues = [Queue() for _ in range(num_jobs)]
+    jobs = [Process(target=worker_job, args=(feed_queues[idx], fetch_queues[idx])) for idx in range(num_jobs)]
+
+    # start feeding job
+    feed_job = Process(target=feed_process, args=(feed_queues,))
+    feed_job.start()
+
+    # start processing job
+    for job in jobs:
+        job.start()
+
+    # fetching job
+    fetch_process(fetch_queues)
+
+    # cleanup
+    for job in jobs:
+        job.kill()
+
+
+def sequential_processing():
     if args.data_type == DataSourceType.ALL:
         write_examples(
             data=data,
@@ -333,6 +422,45 @@ def main():
                 max_query_length=pipeline_config[MAX_QUERY_LENGTH],
                 max_context_length=pipeline_config[MAX_CONTEXT_LENGTH]
             )
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config-file", default="configs/pipeline_training_config.json")
+    parser.add_argument("--data-path", required=True)
+    parser.add_argument("--data-format", choices=["json", "jsonlines"], default="json")
+    parser.add_argument("--num-examples-per-file", default=1000, type=int)
+    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--data-type", choices=[DataSourceType.ALL_POS_ONLY, DataSourceType.ALL,
+                        DataSourceType.HARD_ONLY, DataSourceType.HARD_NONE], required=True)
+    parser.add_argument("--parallelize", type=eval, default=False)
+    parser.add_argument("--num-processes", type=int, default=multiprocessing.cpu_count())
+
+    global args
+    args = parser.parse_args()
+
+    global pipeline_config, data
+    with open(args.config_file, "r") as reader:
+        pipeline_config = json.load(reader)
+    if args.data_format == "json":
+        with open(args.data_path, "r") as reader:
+            data = json.load(reader)
+    else:
+        data = jsonlines.open(args.data_path, "r")
+
+    global tokenizer
+    tokenizer = TOKENIZER_MAPPING[pipeline_config[TOKENIZER_TYPE]].from_pretrained(
+        pipeline_config[TOKENIZER_PATH]
+    )
+
+    if args.parallelize:
+        parallel_processing()
+    else:
+        sequential_processing()
+
+    if args.data_format == "jsonlines":
+        data.close()
 
 
 if __name__ == "__main__":
