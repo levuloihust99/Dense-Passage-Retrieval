@@ -26,7 +26,8 @@ from libs.data_helpers.constants import (
     NUM_BACKWARD_ACCUMULATE_STEPS,
     USE_GRADIENT_CACHE,
     QUERY_SUB_BATCH,
-    REGULATE_FACTOR
+    REGULATE_FACTOR,
+    USE_HARDNEG_INBATCH
 )
 
 
@@ -289,7 +290,10 @@ class DualEncoderTrainer(object):
         context_input_ids = item["context/input_ids"]
         context_attention_mask = item["context/attention_mask"]
         duplicate_mask = item["duplicate_mask"]
-        hardneg_mask = item["hardneg_mask"]
+        if self.config.pipeline_config[INBATCH_PIPELINE_NAME][USE_HARDNEG_INBATCH]:
+            hardneg_mask = item["hardneg_mask"]
+        else:
+            hardneg_mask = None
 
         with tf.GradientTape() as tape:
             query_embedding, context_embedding = self.dual_encoder(

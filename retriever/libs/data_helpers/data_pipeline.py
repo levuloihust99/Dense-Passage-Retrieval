@@ -806,8 +806,7 @@ class InbatchPipeline(Pipeline):
             "question/input_ids": question_input_ids,
             "question/attention_mask": question_attention_mask,
             "positive_context/input_ids": positive_context_input_ids,
-            "positive_context/attention_mask": positive_context_attention_mask,
-            "hardneg_mask": tf.zeros([0], dtype=tf.int32)
+            "positive_context/attention_mask": positive_context_attention_mask
         }
         if self.use_hardneg:
             ret.update({
@@ -859,8 +858,7 @@ class InbatchPipeline(Pipeline):
             "question/input_ids": item["question/input_ids"],
             "question/attention_mask": item["question/attention_mask"],
             "context/input_ids": item["positive_context/input_ids"],
-            "context/attention_mask": item["positive_context/attention_mask"],
-            "hardneg_mask": item["hardneg_mask"]
+            "context/attention_mask": item["positive_context/attention_mask"]
         }
 
     def build(self):

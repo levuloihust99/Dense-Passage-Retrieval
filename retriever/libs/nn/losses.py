@@ -100,13 +100,16 @@ class LossCalculator(object):
         query_embedding: tf.Tensor,
         context_embedding: tf.Tensor,
         duplicate_mask: tf.Tensor,
-        hardneg_mask: tf.Tensor
+        hardneg_mask: Optional[tf.Tensor] = None
     ):
         batch_size, hidden_size = query_embedding.shape.as_list()
         similarity_matrix = tf.matmul(query_embedding, context_embedding, transpose_b=True)
-        hardneg_mask_replicate = tf.tile(tf.expand_dims(tf.reshape(
-            hardneg_mask, [-1]), axis=0), multiples=[batch_size, 1])
-        mask = tf.concat([duplicate_mask, hardneg_mask_replicate], axis=1)
+        if hardneg_mask is not None:
+            hardneg_mask_replicate = tf.tile(tf.expand_dims(tf.reshape(
+                hardneg_mask, [-1]), axis=0), multiples=[batch_size, 1])
+            mask = tf.concat([duplicate_mask, hardneg_mask_replicate], axis=1)
+        else:
+            mask = duplicate_mask
         similarity_matrix_masked = tf.where(
             tf.cast(mask, dtype=tf.bool),
             similarity_matrix, -1e9
