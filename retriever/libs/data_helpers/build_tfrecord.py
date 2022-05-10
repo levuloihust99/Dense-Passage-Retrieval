@@ -306,7 +306,7 @@ def fetch_process(fetch_queues):
     while not is_done:
         for q in fetch_queues:
             try:
-                example = q.get(timeout=10)
+                example = q.get(timeout=50)
             except queue.Empty:
                 is_done = True
                 break
