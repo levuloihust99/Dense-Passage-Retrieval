@@ -31,12 +31,16 @@ Input data should be in JSON format. The `.json` file has the following structur
         "sample_id": Integer,
         "questions": [String],
         "positive_contexts": [
-            "title": String,
-            "text": String
+            {
+                "title": String,
+                "text": String
+            }
         ],
         "hardneg_contexts": [
-            "title": String,
-            "text": String
+            {
+                "title": String,
+                "text": String
+            }
         ]
     }
 ]
