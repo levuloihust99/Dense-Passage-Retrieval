@@ -187,6 +187,8 @@ def generate_embeddings_and_sequential_write():
     
     read_stream = tf.io.gfile.GFile(config.corpus_path)
     corpus = jsonlines.Reader(read_stream)
+    for _ in range(config.skip_size):
+        corpus.read()
     
     if tf.io.gfile.exists(config.embedding_dir):
         tf.io.gfile.makedirs(config.embedding_dir)
