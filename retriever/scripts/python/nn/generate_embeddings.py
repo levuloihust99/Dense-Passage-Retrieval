@@ -194,26 +194,22 @@ def generate_embeddings_and_sequential_write():
     if tf.io.gfile.exists(config.embedding_dir):
         tf.io.gfile.makedirs(config.embedding_dir)
 
-    idx = config.skip_counter
-    counter = 0
+    counter = config.skip_counter
     accumulate_embedding = tf.zeros([0, context_encoder.config.hidden_size], dtype=tf.float32)
-    for idx, features in enumerate(dataset):
-        per_replicas_embeddings = strategy.run(step_fn, args=(features,))
-        
-        if strategy.num_replicas_in_sync > 1:
-            batch_embeddings = tf.concat(per_replicas_embeddings.values, axis=0)
-        else:
-            batch_embeddings = per_replicas_embeddings
-        logger.info("Done generate embeddings for {} articles".format((idx + 1) * batch_embeddings.shape[0]))
-        accumulate_embedding = tf.concat([accumulate_embedding, batch_embeddings], axis=0)
+    iterator = iter(dataset)
+    idx = 0
+    num_embedded = config.skip_size
 
-        if accumulate_embedding.shape.as_list()[0] >= config.num_embeddings_per_file:
+    while True:
+        if accumulate_embedding.shape.as_list()[0] >= config.num_embeddings_per_file \
+            or num_embedded >= config.corpus_size:
             # reset accumulate embedding
             to_be_dumped_embedding = accumulate_embedding[:config.num_embeddings_per_file]
             accumulate_embedding = accumulate_embedding[config.num_embeddings_per_file:]
             
             # data to be dumped
-            auxiliary_info = [corpus.read() for _ in range(config.num_embeddings_per_file)]
+            num_dumped = to_be_dumped_embedding.shape.as_list()[0]
+            auxiliary_info = [corpus.read() for _ in range(num_dumped)]
             data_to_be_dumped = [(info["article_id"], emb) for emb, info in zip(to_be_dumped_embedding, auxiliary_info)]
 
             # dumping
@@ -223,21 +219,29 @@ def generate_embeddings_and_sequential_write():
             dumper = pickle.Pickler(writer)
             dumper.dump(data_to_be_dumped)
             writer.close()
-            logger.info("Dumped {} embeddings to {}".format(config.num_embeddings_per_file, file_path))
-    
-    accumulate_embedding = accumulate_embedding[:]
-    if accumulate_embedding.shape.as_list()[0] > 0:
-        # data to be dumped
-        auxiliary_info = [corpus.read() for _ in range(accumulate_embedding.shape.as_list()[0])]
-        data_to_be_dumped = [(info["article_id"], emb) for emb, info in zip(accumulate_embedding, auxiliary_info)]
+            logger.info("Dumped {} embeddings to {}".format(num_dumped, file_path))
+            
+            if num_embedded >= config.corpus_size:
+                break
+            else:
+                continue
+        
+        idx += 1
+        features = next(iterator)
 
-        # dumping
-        file_path = os.path.join(config.embedding_dir, "corpus_embedding_splitted_{:03d}".format(idx))
-        writer = tf.io.gfile.GFile(file_path, "wb")
-        dumper = pickle.Pickler(writer)
-        dumper.dump(data_to_be_dumped)
-        writer.close()
-        logger.info("Dumped {} embeddings to {}".format(accumulate_embedding.shape.as_list()[0], file_path))
+        per_replicas_embeddings = strategy.run(step_fn, args=(features,))
+        
+        if strategy.num_replicas_in_sync > 1:
+            batch_embeddings = tf.concat(per_replicas_embeddings.values, axis=0)
+        else:
+            batch_embeddings = per_replicas_embeddings
+
+        num_embedded += batch_embeddings.shape[0]
+        logger.info("Done generate embeddings for {} articles".format(num_embedded))
+        accumulate_embedding = tf.concat([accumulate_embedding, batch_embeddings], axis=0)
+        if num_embedded >= config.corpus_size: # last turn
+            if num_fake_examples > 0:
+                accumulate_embedding = accumulate_embedding[:-num_fake_examples]
 
 
 if __name__ == "__main__":
