@@ -70,9 +70,6 @@ def load_corpus_dataset(
     dataset = dataset.flat_map(
         lambda x: tf.data.TFRecordDataset(x),
     )
-    count = 0
-    for _ in dataset:
-        count += 1
 
     feature_description = {
         "input_ids": tf.io.FixedLenFeature(shape=[max_context_length], dtype=tf.int64),
@@ -89,7 +86,7 @@ def load_corpus_dataset(
         },
         num_parallel_calls=tf.data.AUTOTUNE
     )
-    return dataset, count
+    return dataset
 
 
 def worker_job(from_master_queue, to_master_queue):

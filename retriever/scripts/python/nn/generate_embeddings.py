@@ -99,10 +99,11 @@ def main():
     )
 
     global dataset
-    dataset, num_examples = load_corpus_dataset(
+    dataset = load_corpus_dataset(
         data_source=config.corpus_tfrecord_dir,
         max_context_length=config.max_context_length
     )
+    num_examples = config.corpus_size
     if num_examples % (config.eval_batch_size * strategy.num_replicas_in_sync) != 0:
         num_forwards = num_examples // (config.eval_batch_size * strategy.num_replicas_in_sync)
         num_fake_examples = (num_forwards + 1) * config.eval_batch_size * strategy.num_replicas_in_sync - num_examples
