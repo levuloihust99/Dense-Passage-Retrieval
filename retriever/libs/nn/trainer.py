@@ -254,7 +254,7 @@ class DualEncoderTrainer(object):
         else:
             step_fn = self.get_step_fn_biward(pipeline_type)
             item = items[0]
-            loss = self.strategy.run(self.inbatch_biward_step_fn, args=(item,))
+            loss = self.strategy.run(step_fn, args=(item,))
             loss = self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None)
             return loss
 
@@ -371,7 +371,7 @@ class DualEncoderTrainer(object):
                 query_attention_mask=query_attention_mask,
                 context_input_ids=context_input_ids,
                 context_attention_mask=context_attention_mask,
-                training=True
+                training=False
             )
 
             loss = self.loss_calculator.compute(
@@ -505,7 +505,7 @@ class DualEncoderTrainer(object):
                 query_attention_mask=query_attention_mask,
                 context_input_ids=context_input_ids,
                 context_attention_mask=context_attention_mask,
-                training=True
+                training=False
             )
 
             loss = self.loss_calculator.compute(
@@ -657,12 +657,147 @@ class DualEncoderTrainer(object):
         return self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None), \
             [self.strategy.reduce(tf.distribute.ReduceOp.SUM,
                                   grad, axis=None) for grad in grads]
-    
+
+    @tf.function    
     def pos_biward_step_fn(self, item):
-        pass
+        """Forward, backward and update computation of pos pipeline without gradient cache, run on each training device."""
+
+        grouped_data = item["grouped_data"]
+        negative_samples = item["negative_samples"]
+        with tf.GradientTape() as tape:
+            query_embedding, positive_context_embedding = self.dual_encoder(
+                query_input_ids=grouped_data["question/input_ids"],
+                query_attention_mask=grouped_data["question/attention_mask"],
+                context_input_ids=grouped_data["positive_context/input_ids"],
+                context_attention_mask=grouped_data["positive_context/attention_mask"],
+                training=False
+            )
+            negative_context_embedding = self.dual_encoder.context_encoder(
+                input_ids=negative_samples["negative_context/input_ids"],
+                attention_mask=negative_samples["negative_context/attention_mask"],
+                return_dict=True,
+                training=False
+            ).last_hidden_state[:, 0, :]
+            loss = self.loss_calculator.compute(
+                inputs={
+                    "query_embedding": query_embedding,
+                    "positive_context_embedding": positive_context_embedding,
+                    "negative_context_embedding": negative_context_embedding
+                },
+                sim_func=self.config.sim_score,
+                type=POS_PIPELINE_NAME,
+                duplicate_mask=item["duplicate_mask"]
+            )
+            loss = loss / self.strategy.num_replicas_in_sync
+
+        grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
+        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+        return loss
 
     def pos_biward_step_fn_gc(self, item):
-        pass
+        """Forward, backward and update computation of pos pipeline with gradient cache, run on each training device."""
+
+        grouped_data = item["grouped_data"]
+        negative_samples = item["negative_samples"]
+
+        query_input_ids = grouped_data["question/input_ids"]
+        query_attention_mask = grouped_data["question/attention_mask"]
+        positive_context_input_ids = grouped_data["positive_context/input_ids"]
+        positive_context_attention_mask = grouped_data["positive_context/attention_mask"]
+        negative_context_input_ids = negative_samples["negative_context/input_ids"]
+        negative_context_attention_mask = negative_samples["negative_context/attention_mask"]
+        duplicate_mask = item["duplicate_mask"]
+
+        query_batch_size = query_input_ids.shape.as_list()[0]
+        positive_context_batch_size = positive_context_input_ids.shape.as_list()[0]
+        negative_context_batch_size = negative_context_input_ids.shape.as_list()[0]
+
+        # no tracking gradient forward
+        query_sub_batch_size = \
+            self.config.pipeline_config[GRADIENT_CACHE_CONFIG][QUERY_SUB_BATCH]
+
+        query_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=query_batch_size,
+            sub_batch_size=query_sub_batch_size,
+            is_query_encoder=True
+        )
+        query_input_ids_3d, query_attention_mask_3d, query_embedding_tensor = \
+            query_batch_forward_graph(query_input_ids, query_attention_mask)
+
+        context_sub_batch_size = \
+            self.config.pipeline_config[GRADIENT_CACHE_CONFIG][CONTEXT_SUB_BATCH]
+
+        positive_context_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=positive_context_batch_size,
+            sub_batch_size=context_sub_batch_size,
+            is_query_encoder=False
+        )
+        positive_context_input_ids_3d, positive_context_attention_mask_3d, \
+            positive_context_embedding_tensor = \
+            positive_context_batch_forward_graph(positive_context_input_ids, positive_context_attention_mask)
+
+        negative_context_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=negative_context_batch_size,
+            sub_batch_size=context_sub_batch_size,
+            is_query_encoder=False
+        )
+        negative_context_input_ids_3d, negative_context_attention_mask_3d, \
+            negative_context_embedding_tensor = \
+            negative_context_batch_forward_graph(negative_context_input_ids, negative_context_attention_mask)
+
+        # backward from loss to embeddings
+        query_embedding = query_embedding_tensor[:query_batch_size]
+        positive_context_embedding = positive_context_embedding_tensor[
+            :positive_context_batch_size]
+        negative_context_embedding = negative_context_embedding_tensor[
+            :negative_context_batch_size]
+
+        loss, embedding_grads = self.embedding_backward_pos(
+            query_embedding, positive_context_embedding, negative_context_embedding, duplicate_mask)
+
+        # backward from embeddings to parameters
+        query_embedding_grads = embedding_grads["query"]
+        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
+        query_padding = query_multiplier * query_sub_batch_size - query_batch_size
+        query_embedding_grads_padded = tf.pad(
+            query_embedding_grads,
+            [[0, query_padding], [0, 0]]
+        )
+        query_params_backward_graph = self.get_params_backward_graph(True)
+        query_grads = query_params_backward_graph(
+            query_input_ids_3d, query_attention_mask_3d, query_embedding_grads_padded)
+
+        positive_context_embedding_grads = embedding_grads["positive_context"]
+        positive_context_multiplier = (
+            positive_context_batch_size - 1) // context_sub_batch_size + 1
+        positive_context_padding = positive_context_multiplier * \
+            context_sub_batch_size - positive_context_batch_size
+        positive_context_embedding_grads_padded = tf.pad(
+            positive_context_embedding_grads,
+            [[0, positive_context_padding], [0, 0]]
+        )
+        context_params_backward_graph = self.get_params_backward_graph(False)
+        positive_context_grads = context_params_backward_graph(
+            positive_context_input_ids_3d, positive_context_attention_mask_3d, positive_context_embedding_grads_padded)
+        
+        negative_context_embedding_grads = embedding_grads["negative_context"]
+        negative_context_multiplier = (
+            negative_context_batch_size - 1) // context_sub_batch_size + 1
+        negative_context_padding = negative_context_multiplier * \
+            context_sub_batch_size - negative_context_batch_size
+        negative_context_embedding_grads_padded = tf.pad(
+            negative_context_embedding_grads,
+            [[0, negative_context_padding], [0, 0]]
+        )
+        negative_context_grads = context_params_backward_graph(
+            negative_context_input_ids_3d, negative_context_attention_mask_3d, negative_context_embedding_grads_padded)
+
+        context_grads = [positive_grad + negative_grad
+                         for positive_grad, negative_grad in zip(positive_context_grads, negative_context_grads)]
+        grads = query_grads + context_grads  # concatenate list
+        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+
+        return loss
 
     def pos_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
@@ -696,13 +831,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["positive_context/input_ids"],
                 context_attention_mask=grouped_data["positive_context/attention_mask"],
-                training=True
+                training=False
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -913,11 +1048,193 @@ class DualEncoderTrainer(object):
 
     @tf.function    
     def poshard_biward_step_fn(self, item):
-        pass
+        """Forward, backward and update computation of poshard pipeline without gradient cache, run on each training device."""
+
+        query_input_ids = item["question/input_ids"]
+        query_attention_mask = item["question/attention_mask"]
+        positive_context_input_ids = item["positive_context/input_ids"]
+        positive_context_attention_mask = item["positive_context/attention_mask"]
+        hardneg_context_input_ids = item["hardneg_context/input_ids"]
+        hardneg_context_attention_mask = item["hardneg_context/attention_mask"]
+        hardneg_mask = item["hardneg_mask"]
+
+        hardneg_context_input_ids = tf.reshape(
+            hardneg_context_input_ids, [-1, self.config.pipeline_config[MAX_CONTEXT_LENGTH]])
+        hardneg_context_attention_mask = tf.reshape(
+            hardneg_context_attention_mask, [-1, self.config.pipeline_config[MAX_CONTEXT_LENGTH]])
+
+        with tf.GradientTape() as tape:
+            query_embedding = self.dual_encoder.query_encoder(
+                input_ids=query_input_ids,
+                attention_mask=query_attention_mask,
+                return_dict=True,
+                training=False
+            ).last_hidden_state[:, 0, :]
+            positive_context_embedding = self.dual_encoder.context_encoder(
+                input_ids=positive_context_input_ids,
+                attention_mask=positive_context_attention_mask,
+                return_dict=True,
+                training=False
+            ).last_hidden_state[:, 0, :]
+
+            # forward hard negative contexts with mask
+            hardneg_context_embedding = self.dual_encoder.context_encoder(
+                input_ids=hardneg_context_input_ids,
+                attention_mask=hardneg_context_attention_mask,
+                return_dict=True,
+                training=False
+            ).last_hidden_state[:, 0, :]
+            hardneg_context_embedding = tf.reshape(
+                hardneg_context_embedding,
+                [
+                    self.config.pipeline_config[POSHARD_PIPELINE_NAME][FORWARD_BATCH_SIZE],
+                    self.config.pipeline_config[POSHARD_PIPELINE_NAME][CONTRASTIVE_SIZE],
+                    -1
+                ]
+            )
+            loss = self.loss_calculator.compute(
+                inputs={
+                    "query_embedding": query_embedding,
+                    "positive_context_embedding": positive_context_embedding,
+                    "hardneg_context_embedding": hardneg_context_embedding,
+                    "hardneg_mask": hardneg_mask
+                },
+                sim_func=self.config.sim_score,
+                type=POSHARD_PIPELINE_NAME,
+            )
+            loss = loss / self.strategy.num_replicas_in_sync
+
+        grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
+        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+        return loss
 
     @tf.function
     def poshard_biward_step_fn_gc(self, item):
-        pass
+        """Forward, backward and update computation of poshard pipeline with gradient cache, run on each training device."""
+
+        query_input_ids = item["question/input_ids"]
+        query_attention_mask = item["question/attention_mask"]
+        positive_context_input_ids = item["positive_context/input_ids"]
+        positive_context_attention_mask = item["positive_context/attention_mask"]
+        hardneg_context_input_ids = item["hardneg_context/input_ids"]
+        hardneg_context_attention_mask = item["hardneg_context/attention_mask"]
+        hardneg_mask = item["hardneg_mask"]
+
+        # query batch size
+        query_batch_size = query_input_ids.shape.as_list()[0]
+        # positive context batch size
+        positive_context_batch_size = positive_context_input_ids.shape.as_list()[0]
+        # reshape hardneg input ids
+        hardneg_context_input_ids = tf.reshape(
+            hardneg_context_input_ids, [-1, self.config.pipeline_config[MAX_CONTEXT_LENGTH]])
+        # reshape hardneg attention mask
+        hardneg_context_attention_mask = tf.reshape(
+            hardneg_context_attention_mask, [-1, self.config.pipeline_config[MAX_CONTEXT_LENGTH]])
+        # hardneg context batch size
+        hardneg_context_batch_size = hardneg_context_input_ids.shape.as_list()[0]
+
+        # no tracking gradient forward
+        query_sub_batch_size = \
+            self.config.pipeline_config[GRADIENT_CACHE_CONFIG][QUERY_SUB_BATCH]
+
+        query_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=query_batch_size,
+            sub_batch_size=query_sub_batch_size,
+            is_query_encoder=True
+        )
+        query_input_ids_3d, query_attention_mask_3d, query_embedding_tensor = \
+            query_batch_forward_graph(query_input_ids, query_attention_mask)
+
+        context_sub_batch_size = \
+            self.config.pipeline_config[GRADIENT_CACHE_CONFIG][CONTEXT_SUB_BATCH]
+
+        positive_context_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=positive_context_batch_size,
+            sub_batch_size=context_sub_batch_size,
+            is_query_encoder=False
+        )
+        positive_context_input_ids_3d, positive_context_attention_mask_3d, \
+            positive_context_embedding_tensor = \
+            positive_context_batch_forward_graph(positive_context_input_ids, positive_context_attention_mask)
+        
+        hardneg_context_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=hardneg_context_batch_size,
+            sub_batch_size=context_sub_batch_size,
+            is_query_encoder=False
+        )
+        hardneg_context_input_ids_3d, hardneg_context_attention_mask_3d, \
+            hardneg_context_embedding_tensor = \
+            hardneg_context_batch_forward_graph(hardneg_context_input_ids, hardneg_context_attention_mask)
+
+        # query
+        query_embedding = query_embedding_tensor[:query_batch_size]
+        # positive context
+        positive_context_embedding = positive_context_embedding_tensor[
+            :positive_context_batch_size]
+        # hardneg context
+        hardneg_context_embedding_3d = tf.reshape(
+            hardneg_context_embedding_tensor[:hardneg_context_batch_size],
+            [
+                self.config.pipeline_config[POSHARD_PIPELINE_NAME][FORWARD_BATCH_SIZE],
+                self.config.pipeline_config[POSHARD_PIPELINE_NAME][CONTRASTIVE_SIZE],
+                -1
+            ]
+        )
+
+        # backward from loss to embeddings
+        loss, embedding_grads = self.embedding_backward_poshard(
+            query_embedding, positive_context_embedding, hardneg_context_embedding_3d, hardneg_mask)
+
+        # backward from embeddings to parameters
+        query_embedding_grads = embedding_grads["query"]
+        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
+        query_padding = query_multiplier * query_sub_batch_size - query_batch_size
+        query_embedding_grads_padded = tf.pad(
+            query_embedding_grads,
+            [[0, query_padding], [0, 0]]
+        )
+        query_params_backward_graph = self.get_params_backward_graph(True)
+        query_grads = query_params_backward_graph(
+            query_input_ids_3d, query_attention_mask_3d, query_embedding_grads_padded)
+
+        positive_context_embedding_grads = embedding_grads["positive_context"]
+        positive_context_multiplier = (
+            positive_context_batch_size - 1) // context_sub_batch_size + 1
+        positive_context_padding = positive_context_multiplier * \
+            context_sub_batch_size - positive_context_batch_size
+        positive_context_embedding_grads_padded = tf.pad(
+            positive_context_embedding_grads,
+            [[0, positive_context_padding], [0, 0]]
+        )
+        context_params_backward_graph = self.get_params_backward_graph(False)
+        positive_context_grads = context_params_backward_graph(
+            positive_context_input_ids_3d, positive_context_attention_mask_3d, positive_context_embedding_grads_padded)
+
+        hardneg_context_embedding_grads = embedding_grads["hardneg_context"]
+        hardneg_context_multiplier = (
+            hardneg_context_batch_size - 1) // context_sub_batch_size + 1
+        hardneg_context_padding = hardneg_context_multiplier * \
+            context_sub_batch_size - hardneg_context_batch_size
+        hardneg_context_embedding_grads_2d = tf.reshape(
+            hardneg_context_embedding_grads,
+            [hardneg_context_batch_size, -1]
+        )
+        hardneg_context_embedding_grads_padded = tf.pad(
+            hardneg_context_embedding_grads_2d,
+            [[0, hardneg_context_padding], [0, 0]]
+        )
+        hardneg_context_grads = context_params_backward_graph(
+            hardneg_context_input_ids_3d, hardneg_context_attention_mask_3d, hardneg_context_embedding_grads_padded)
+
+        context_grads = [
+            positive_grad + hardneg_grad
+            for positive_grad, hardneg_grad
+            in zip(positive_context_grads, hardneg_context_grads)
+        ]
+        grads = query_grads + context_grads  # concatenate list
+        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+
+        return loss
 
     def poshard_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
@@ -961,13 +1278,13 @@ class DualEncoderTrainer(object):
                 input_ids=query_input_ids,
                 attention_mask=query_attention_mask,
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             positive_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=positive_context_input_ids,
                 attention_mask=positive_context_attention_mask,
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
 
             # forward hard negative contexts with mask
@@ -975,7 +1292,7 @@ class DualEncoderTrainer(object):
                 input_ids=hardneg_context_input_ids,
                 attention_mask=hardneg_context_attention_mask,
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             hardneg_context_embedding = tf.reshape(
                 hardneg_context_embedding,
@@ -1236,10 +1553,145 @@ class DualEncoderTrainer(object):
 
     @tf.function
     def hard_biward_step_fn(self, item):
-        pass
+        """Forward, backward and update computation of poshard pipeline without gradient cache, run on each training device."""
+
+        grouped_data = item["grouped_data"]
+        negative_samples = item["negative_samples"]
+        with tf.GradientTape() as tape:
+            query_embedding, hardneg_context_embedding = self.dual_encoder(
+                query_input_ids=grouped_data["question/input_ids"],
+                query_attention_mask=grouped_data["question/attention_mask"],
+                context_input_ids=grouped_data["hardneg_context/input_ids"],
+                context_attention_mask=grouped_data["hardneg_context/attention_mask"],
+                training=False
+            )
+            negative_context_embedding = self.dual_encoder.context_encoder(
+                input_ids=negative_samples["negative_context/input_ids"],
+                attention_mask=negative_samples["negative_context/attention_mask"],
+                return_dict=True,
+                training=False
+            ).last_hidden_state[:, 0, :]
+            loss = self.loss_calculator.compute(
+                inputs={
+                    "query_embedding": query_embedding,
+                    "hardneg_context_embedding": hardneg_context_embedding,
+                    "negative_context_embedding": negative_context_embedding
+                },
+                sim_func=self.config.sim_score,
+                type="hard",
+                duplicate_mask=item["duplicate_mask"]
+            )
+            loss = loss / self.strategy.num_replicas_in_sync
+
+        grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
+        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+
+        return loss
 
     def hard_biward_step_fn_gc(self, item):
-        pass
+        """Forward, backward and update computation of poshard pipeline with gradient cache, run on each training device."""
+
+        grouped_data = item["grouped_data"]
+        negative_samples = item["negative_samples"]
+
+        query_input_ids = grouped_data["question/input_ids"]
+        query_attention_mask = grouped_data["question/attention_mask"]
+        hardneg_context_input_ids = grouped_data["hardneg_context/input_ids"]
+        hardneg_context_attention_mask = grouped_data["hardneg_context/attention_mask"]
+        negative_context_input_ids = negative_samples["negative_context/input_ids"]
+        negative_context_attention_mask = negative_samples["negative_context/attention_mask"]
+        duplicate_mask = item["duplicate_mask"]
+
+        query_batch_size = query_input_ids.shape.as_list()[0]
+        hardneg_context_batch_size = hardneg_context_input_ids.shape.as_list()[0]
+        negative_context_batch_size = negative_context_input_ids.shape.as_list()[0]
+
+        # no tracking gradient forward
+        query_sub_batch_size = \
+            self.config.pipeline_config[GRADIENT_CACHE_CONFIG][QUERY_SUB_BATCH]
+
+        query_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=query_batch_size,
+            sub_batch_size=query_sub_batch_size,
+            is_query_encoder=True
+        )
+        query_input_ids_3d, query_attention_mask_3d, query_embedding_tensor = \
+            query_batch_forward_graph(query_input_ids, query_attention_mask)
+
+        context_sub_batch_size = \
+            self.config.pipeline_config[GRADIENT_CACHE_CONFIG][CONTEXT_SUB_BATCH]
+
+        hardneg_context_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=hardneg_context_batch_size,
+            sub_batch_size=context_sub_batch_size,
+            is_query_encoder=False
+        )
+        hardneg_context_input_ids_3d, hardneg_context_attention_mask_3d, \
+            hardneg_context_embedding_tensor = \
+            hardneg_context_batch_forward_graph(hardneg_context_input_ids, hardneg_context_attention_mask)
+
+        negative_context_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=negative_context_batch_size,
+            sub_batch_size=context_sub_batch_size,
+            is_query_encoder=False
+        )
+        negative_context_input_ids_3d, negative_context_attention_mask_3d, \
+            negative_context_embedding_tensor = \
+            negative_context_batch_forward_graph(negative_context_input_ids, negative_context_attention_mask)
+
+        # backward from loss to embeddings
+        query_embedding = query_embedding_tensor[:query_batch_size]
+        hardneg_context_embedding = hardneg_context_embedding_tensor[
+            :hardneg_context_batch_size]
+        negative_context_embedding = negative_context_embedding_tensor[
+            :negative_context_batch_size]
+
+        loss, embedding_grads = self.embedding_backward_hard(
+            query_embedding, hardneg_context_embedding, negative_context_embedding, duplicate_mask)
+
+        # backward from embeddings to parameters
+        query_embedding_grads = embedding_grads["query"]
+        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
+        query_padding = query_multiplier * query_sub_batch_size - query_batch_size
+        query_embedding_grads_padded = tf.pad(
+            query_embedding_grads,
+            [[0, query_padding], [0, 0]]
+        )
+        query_params_backward_graph = self.get_params_backward_graph(True)
+        query_grads = query_params_backward_graph(
+            query_input_ids_3d, query_attention_mask_3d, query_embedding_grads_padded)
+
+        hardneg_context_embedding_grads = embedding_grads["hardneg_context"]
+        hardneg_context_multiplier = (
+            hardneg_context_batch_size - 1) // context_sub_batch_size + 1
+        hardneg_context_padding = hardneg_context_multiplier * \
+            context_sub_batch_size - hardneg_context_batch_size
+        hardneg_context_embedding_grads_padded = tf.pad(
+            hardneg_context_embedding_grads,
+            [[0, hardneg_context_padding], [0, 0]]
+        )
+        hardneg_context_params_backward_graph = self.get_params_backward_graph(False)
+        hardneg_context_grads = hardneg_context_params_backward_graph(
+            hardneg_context_input_ids_3d, hardneg_context_attention_mask_3d, hardneg_context_embedding_grads_padded)
+
+        negative_context_embedding_grads = embedding_grads["negative_context"]
+        negative_context_multiplier = (
+            negative_context_batch_size - 1) // context_sub_batch_size + 1
+        negative_context_padding = negative_context_multiplier * \
+            context_sub_batch_size - negative_context_batch_size
+        negative_context_embedding_grads_padded = tf.pad(
+            negative_context_embedding_grads,
+            [[0, negative_context_padding], [0, 0]]
+        )
+        negative_context_grads = hardneg_context_params_backward_graph(
+            negative_context_input_ids_3d, negative_context_attention_mask_3d, negative_context_embedding_grads_padded)
+
+        context_grads = [hardneg_grad + negative_grad
+                         for hardneg_grad, negative_grad in zip(hardneg_context_grads, negative_context_grads)]
+        grads = query_grads + context_grads  # concatenate list
+        # self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+
+        return loss
 
     def hard_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
@@ -1273,13 +1725,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["hardneg_context/input_ids"],
                 context_attention_mask=grouped_data["hardneg_context/attention_mask"],
-                training=True
+                training=False
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=True
+                training=False
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -1488,7 +1940,7 @@ class DualEncoderTrainer(object):
 
         return self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None), grads
 
-    # @tf.function
+    @tf.function
     def embedding_backward_inbatch(
         self,
         query_embedding: tf.Tensor,
@@ -1800,7 +2252,7 @@ class DualEncoderTrainer(object):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 return_dict=True,
-                training=True
+                training=False
             )
             sequence_output = outputs.last_hidden_state
             pooled_output = sequence_output[:, 0, :]
@@ -1822,7 +2274,7 @@ class DualEncoderTrainer(object):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     return_dict=True,
-                    training=True
+                    training=False
                 )
                 sequence_output = outputs.last_hidden_state
                 pooled_output = sequence_output[:, 0, :]
