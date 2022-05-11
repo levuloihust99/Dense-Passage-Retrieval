@@ -101,9 +101,12 @@ def main():
     global dataset
     dataset = load_corpus_dataset(
         data_source=config.corpus_tfrecord_dir,
-        max_context_length=config.max_context_length
+        max_context_length=config.max_context_length,
+        skip_size=config.skip_size
     )
     num_examples = config.corpus_size
+    global num_fake_examples
+    num_fake_examples = 0
     if num_examples % (config.eval_batch_size * strategy.num_replicas_in_sync) != 0:
         num_forwards = num_examples // (config.eval_batch_size * strategy.num_replicas_in_sync)
         num_fake_examples = (num_forwards + 1) * config.eval_batch_size * strategy.num_replicas_in_sync - num_examples
@@ -188,7 +191,7 @@ def generate_embeddings_and_sequential_write():
     if tf.io.gfile.exists(config.embedding_dir):
         tf.io.gfile.makedirs(config.embedding_dir)
 
-    idx = 0
+    idx = config.skip_counter
     counter = 0
     accumulate_embedding = tf.zeros([0, context_encoder.config.hidden_size], dtype=tf.float32)
     for idx, features in enumerate(dataset):
@@ -219,6 +222,7 @@ def generate_embeddings_and_sequential_write():
             writer.close()
             logger.info("Dumped {} embeddings to {}".format(config.num_embeddings_per_file, file_path))
     
+    accumulate_embedding = accumulate_embedding[:]
     if accumulate_embedding.shape.as_list()[0] > 0:
         # data to be dumped
         auxiliary_info = [corpus.read() for _ in range(accumulate_embedding.shape.as_list()[0])]

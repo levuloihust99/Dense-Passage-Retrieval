@@ -61,7 +61,8 @@ def dump_corpus(
 
 def load_corpus_dataset(
     data_source: Text,
-    max_context_length: int
+    max_context_length: int,
+    skip_size: int = None
 ):
     tfrecord_files = tf.io.gfile.listdir(data_source)
     tfrecord_files = [os.path.join(data_source, f) for f in tfrecord_files]
@@ -70,6 +71,8 @@ def load_corpus_dataset(
     dataset = dataset.flat_map(
         lambda x: tf.data.TFRecordDataset(x),
     )
+    if skip_size is not None:
+        dataset = dataset.skip(skip_size)
 
     feature_description = {
         "input_ids": tf.io.FixedLenFeature(shape=[max_context_length], dtype=tf.int64),
