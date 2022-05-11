@@ -260,6 +260,8 @@ class DualEncoderTrainer(object):
                 args=(grads,)
             )
             self.log(step, pipeline_type, loss)
+            if (step + 1) % self.config.logging_steps == 0:
+                self.save_checkpoint()
 
     def inbatch_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
