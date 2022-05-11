@@ -210,7 +210,9 @@ def generate_embeddings_and_sequential_write():
             data_to_be_dumped = [(info["article_id"], emb) for emb, info in zip(to_be_dumped_embedding, auxiliary_info)]
 
             # dumping
-            writer = tf.io.gfile.GFile(os.path.join(config.embedding_dir, "corpus_embedding_splitted_{:03d}.pkl".format(counter)), "wb")
+            file_path = os.path.join(config.embedding_dir, "corpus_embedding_splitted_{:03d}.pkl".format(counter))
+            writer = tf.io.gfile.GFile(file_path, "wb")
+            logger.info("Dumped {} embeddings to {}".format(file_path))
             counter += 1
             dumper = pickle.Pickler(writer)
             dumper.dump(data_to_be_dumped)
