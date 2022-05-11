@@ -1,9 +1,11 @@
 import argparse
 import logging
 import json
+import pickle
 import os
 from typing import Text, Dict, List, Union, Literal
 import tensorflow as tf
+import jsonlines
 
 from libs.data_helpers.corpus_data import load_corpus_dataset
 from libs.constants import MODEL_MAPPING
@@ -18,21 +20,27 @@ add_color_formater(logging.root)
 logger = logging.getLogger()
 
 
+graph_cache = {}
+
 def generate_embeddings(
     context_encoder: tf.keras.Model,
     dataset: Union[tf.data.Dataset, tf.distribute.DistributedDataset],
     strategy: tf.distribute.Strategy
 ):
-    @tf.function
-    def step_fn(features):
-        outputs = context_encoder(
-            input_ids=features['input_ids'],
-            attention_mask=features['attention_mask'],
-            return_dict=True,
-            training=False
-        )
-        pooled_output = outputs.last_hidden_state[:, 0, :]
-        return pooled_output
+    graph_key = "generate_embeddings::{}".format(id(context_encoder))
+    if graph_key in graph_cache:
+        step_fn = graph_cache[graph_key]
+    else:
+        @tf.function
+        def step_fn(features):
+            outputs = context_encoder(
+                input_ids=features['input_ids'],
+                attention_mask=features['attention_mask'],
+                return_dict=True,
+                training=False
+            )
+            pooled_output = outputs.last_hidden_state[:, 0, :]
+            return pooled_output
     
     embeddings = []
     for idx, features in enumerate(dataset):
@@ -75,12 +83,14 @@ def main():
     parser.add_argument("--config-file", required=True)
     args = parser.parse_args()
 
+    global config
     with tf.io.gfile.GFile(args.config_file, "r") as reader:
         config = json.load(reader)
     config = argparse.Namespace(**config)
     
     # setup environment
     setup_memory_growth()
+    global strategy
     strategy = setup_distribute_strategy(
         use_tpu=config.use_tpu,
         tpu_name=config.tpu_name,
@@ -88,6 +98,7 @@ def main():
         project=config.gcp_project if hasattr(config, "gcp_project") else None
     )
 
+    global dataset
     dataset, num_examples = load_corpus_dataset(
         data_source=config.corpus_tfrecord_dir,
         max_context_length=config.max_context_length
@@ -103,11 +114,12 @@ def main():
 
     dataset = dataset.batch(batch_size=config.eval_batch_size)
     dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
-    dist_dataset = strategy.distribute_datasets_from_function(
+    dataset = strategy.distribute_datasets_from_function(
         lambda _: dataset
     )
 
     # instantiate model
+    global context_encoder
     with strategy.scope():
         context_encoder = load_context_encoder(
             checkpoint_dir=config.checkpoint_dir,
@@ -115,8 +127,15 @@ def main():
             pretrained_model_path=config.pretrained_model_path,
             checkpoint_name=config.checkpoint_name
         )
-    
-    embeddings = generate_embeddings(context_encoder, dist_dataset, strategy)
+
+    if config.build_index:
+        generate_embeddings_and_faiss_index()
+    else:
+        generate_embeddings_and_sequential_write()
+
+
+def generate_embeddings_and_faiss_index():
+    embeddings = generate_embeddings(context_encoder, dataset, strategy)
     with tf.io.gfile.GFile(config.corpus_path, "r") as reader:
         corpus = json.load(reader)
     embeddings = embeddings[:len(corpus)]
@@ -144,6 +163,69 @@ def main():
         tf.io.gfile.makedirs(index_dir)
 
     indexer.serialize(config.index_path)
+
+
+def generate_embeddings_and_sequential_write():
+    graph_key = "generate_embeddings::{}".format(id(context_encoder))
+    if graph_key in graph_cache:
+        step_fn = graph_cache[graph_key]
+    else:
+        @tf.function
+        def step_fn(features):
+            outputs = context_encoder(
+                input_ids=features['input_ids'],
+                attention_mask=features['attention_mask'],
+                return_dict=True,
+                training=False
+            )
+            pooled_output = outputs.last_hidden_state[:, 0, :]
+            return pooled_output
+    
+    read_stream = tf.io.gfile.GFile(config.corpus_path)
+    corpus = jsonlines.Reader(read_stream)
+    
+    if tf.io.gfile.exists(config.embedding_dir):
+        tf.io.gfile.makedirs(config.embedding_dir)
+
+    idx = 0
+    counter = 0
+    accumulate_embedding = tf.zeros([0, context_encoder.config.hidden_size], dtype=tf.float32)
+    for idx, features in enumerate(dataset):
+        per_replicas_embeddings = strategy.run(step_fn, args=(features,))
+        
+        if strategy.num_replicas_in_sync > 1:
+            batch_embeddings = tf.concat(per_replicas_embeddings.values, axis=0)
+        else:
+            batch_embeddings = per_replicas_embeddings
+        logger.info("Done generate embeddings for {} articles".format((idx + 1) * batch_embeddings.shape[0]))
+        accumulate_embedding = tf.concat([accumulate_embedding, batch_embeddings], axis=0)
+
+        if accumulate_embedding.shape.as_list()[0] >= config.num_embeddings_per_file:
+            # reset accumulate embedding
+            to_be_dumped_embedding = accumulate_embedding[:config.num_embeddings_per_file]
+            accumulate_embedding = accumulate_embedding[config.num_embeddings_per_file:]
+            
+            # data to be dumped
+            auxiliary_info = [corpus.read() for _ in range(config.num_embeddings_per_file)]
+            data_to_be_dumped = [(info["article_id"], emb) for emb, info in zip(to_be_dumped_embedding, auxiliary_info)]
+
+            # dumping
+            writer = tf.io.gfile.GFile(os.path.join(config.embedding_dir, "corpus_embedding_splitted_{:03d}.pkl".format(counter)), "wb")
+            counter += 1
+            dumper = pickle.Pickler(writer)
+            dumper.dump(data_to_be_dumped)
+            writer.close()
+    
+    if accumulate_embedding.shape.as_list()[0] > 0:
+        # data to be dumped
+        auxiliary_info = [corpus.read() for _ in range(accumulate_embedding.shape.as_list()[0])]
+        data_to_be_dumped = [(info["article_id"], emb) for emb, info in zip(accumulate_embedding, auxiliary_info)]
+
+        # dumping
+        writer = tf.io.gfile.GFile(os.path.join(config.embedding_dir, "corpus_embedding_splitted_{:03d}".format(idx)), "wb")
+        dumper = pickle.Pickler(writer)
+        dumper.dump(data_to_be_dumped)
+        writer.close()
 
 
 if __name__ == "__main__":
