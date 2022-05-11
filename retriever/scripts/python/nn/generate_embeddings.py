@@ -5,6 +5,7 @@ import pickle
 import os
 from typing import Text, Dict, List, Union, Literal
 import tensorflow as tf
+from tqdm import tqdm
 import jsonlines
 
 from libs.data_helpers.corpus_data import load_corpus_dataset
@@ -187,7 +188,7 @@ def generate_embeddings_and_sequential_write():
     
     read_stream = tf.io.gfile.GFile(config.corpus_path)
     corpus = jsonlines.Reader(read_stream)
-    for _ in range(config.skip_size):
+    for _ in tqdm(range(config.skip_size)):
         corpus.read()
     
     if tf.io.gfile.exists(config.embedding_dir):
