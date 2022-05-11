@@ -7,6 +7,7 @@ import time
 from official import nlp
 import official.nlp.optimization
 from tensorflow.python.distribute.values import PerReplica
+from transformers import pipeline
 
 from libs.nn.configuration import DualEncoderConfig
 from libs.nn.modeling import DualEncoder
@@ -243,9 +244,19 @@ class DualEncoderTrainer(object):
 
         self.optimizer.apply_gradients(zip(
             grads, self.dual_encoder.trainable_variables), experimental_aggregate_gradients=False)
-
+    
     def train(self):
         """Training loop."""
+        truth_array = [self.config.pipeline_config[pipeline_type]
+                       [NUM_BACKWARD_ACCUMULATE_STEPS] == 1 for pipeline_type in self._available_pipelines]
+        should_train_accumulate = not all(truth_array)
+        if should_train_accumulate:
+            self.train_accumulate()
+        else:
+            self.train_no_accumulate()
+
+    def train_accumulate(self):
+        """Training loop using gradient accumulation."""
 
         trained_steps = self.optimizer.iterations.numpy()
         logger.info(
@@ -262,6 +273,61 @@ class DualEncoderTrainer(object):
             self.log(step, pipeline_type, loss)
             if (step + 1) % self.config.logging_steps == 0:
                 self.save_checkpoint()
+    
+    def train_no_accumulate(self):
+        """Training loop without accumulation step."""
+
+        trained_steps = self.optimizer.iterations.numpy()
+        logger.info(
+            "************************ Start training ************************")
+        self._mark_time = time.perf_counter()
+        for step in range(trained_steps, self.config.num_train_steps):
+            pipeline_type, items = self._fetch_items(step)
+            item = items[0]
+            loss = self.strategy.run(self.inbatch_biward_step, args=(item,))
+            loss = self.strategy.reduce(tf.distribute.ReduceOp.SUM, axis=None)
+            self.log(step, pipeline_type, loss)
+            if (step + 1) % self.config.logging_steps == 0:
+                self.save_checkpoint()
+
+    @tf.function    
+    def inbatch_biward_step(self, item):
+        """Forward, backward and update computation of inbatch pipeline without gradient cache, run on each training device."""
+
+        query_input_ids = item["question/input_ids"]
+        query_attention_mask = item["question/attention_mask"]
+        context_input_ids = item["context/input_ids"]
+        context_attention_mask = item["context/attention_mask"]
+        duplicate_mask = item["duplicate_mask"]
+        if self.config.pipeline_config[INBATCH_PIPELINE_NAME][USE_HARDNEG_INBATCH]:
+            hardneg_mask = item["hardneg_mask"]
+        else:
+            hardneg_mask = None
+
+        with tf.GradientTape() as tape:
+            query_embedding, context_embedding = self.dual_encoder(
+                query_input_ids=query_input_ids,
+                query_attention_mask=query_attention_mask,
+                context_input_ids=context_input_ids,
+                context_attention_mask=context_attention_mask,
+                training=True
+            )
+
+            loss = self.loss_calculator.compute(
+                inputs={
+                    "query_embedding": query_embedding,
+                    "context_embedding": context_embedding,
+                    "hardneg_mask": hardneg_mask
+                },
+                sim_func=self.config.sim_score,
+                type=INBATCH_PIPELINE_NAME,
+                duplicate_mask=duplicate_mask
+            )
+            loss = loss / self.strategy.num_replicas_in_sync
+
+        grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
+        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+        return loss
 
     def inbatch_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
