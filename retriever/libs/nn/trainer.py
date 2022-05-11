@@ -371,7 +371,7 @@ class DualEncoderTrainer(object):
                 query_attention_mask=query_attention_mask,
                 context_input_ids=context_input_ids,
                 context_attention_mask=context_attention_mask,
-                training=False
+                training=True
             )
 
             loss = self.loss_calculator.compute(
@@ -505,7 +505,7 @@ class DualEncoderTrainer(object):
                 query_attention_mask=query_attention_mask,
                 context_input_ids=context_input_ids,
                 context_attention_mask=context_attention_mask,
-                training=False
+                training=True
             )
 
             loss = self.loss_calculator.compute(
@@ -670,13 +670,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["positive_context/input_ids"],
                 context_attention_mask=grouped_data["positive_context/attention_mask"],
-                training=False
+                training=True
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -831,13 +831,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["positive_context/input_ids"],
                 context_attention_mask=grouped_data["positive_context/attention_mask"],
-                training=False
+                training=True
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -1068,13 +1068,13 @@ class DualEncoderTrainer(object):
                 input_ids=query_input_ids,
                 attention_mask=query_attention_mask,
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             positive_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=positive_context_input_ids,
                 attention_mask=positive_context_attention_mask,
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
 
             # forward hard negative contexts with mask
@@ -1082,7 +1082,7 @@ class DualEncoderTrainer(object):
                 input_ids=hardneg_context_input_ids,
                 attention_mask=hardneg_context_attention_mask,
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             hardneg_context_embedding = tf.reshape(
                 hardneg_context_embedding,
@@ -1278,13 +1278,13 @@ class DualEncoderTrainer(object):
                 input_ids=query_input_ids,
                 attention_mask=query_attention_mask,
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             positive_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=positive_context_input_ids,
                 attention_mask=positive_context_attention_mask,
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
 
             # forward hard negative contexts with mask
@@ -1292,7 +1292,7 @@ class DualEncoderTrainer(object):
                 input_ids=hardneg_context_input_ids,
                 attention_mask=hardneg_context_attention_mask,
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             hardneg_context_embedding = tf.reshape(
                 hardneg_context_embedding,
@@ -1563,13 +1563,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["hardneg_context/input_ids"],
                 context_attention_mask=grouped_data["hardneg_context/attention_mask"],
-                training=False
+                training=True
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -1725,13 +1725,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["hardneg_context/input_ids"],
                 context_attention_mask=grouped_data["hardneg_context/attention_mask"],
-                training=False
+                training=True
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=False
+                training=True
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -2252,7 +2252,7 @@ class DualEncoderTrainer(object):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 return_dict=True,
-                training=False
+                training=True
             )
             sequence_output = outputs.last_hidden_state
             pooled_output = sequence_output[:, 0, :]
@@ -2274,7 +2274,7 @@ class DualEncoderTrainer(object):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     return_dict=True,
-                    training=False
+                    training=True
                 )
                 sequence_output = outputs.last_hidden_state
                 pooled_output = sequence_output[:, 0, :]
