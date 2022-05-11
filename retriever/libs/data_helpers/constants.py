@@ -27,6 +27,7 @@ TRAIN_MODE = "train_mode"
 LIMIT_HARDNEGS = "limit_hardnegs"
 PIPELINE_SEPERATE_SYMBOL = "+"
 REGULATE_FACTOR = "regulate_factor"
+USE_GRADIENT_ACCUMULATE = "use_gradient_accumulate"
 
 # inbatch-specific
 USE_HARDNEG_INBATCH = "use_hardneg"

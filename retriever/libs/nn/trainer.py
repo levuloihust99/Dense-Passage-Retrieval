@@ -1,3 +1,4 @@
+import pip
 import tensorflow as tf
 import logging
 import json
@@ -7,7 +8,7 @@ import time
 from official import nlp
 import official.nlp.optimization
 from tensorflow.python.distribute.values import PerReplica
-from transformers import pipeline
+from typing import List, Dict
 
 from libs.nn.configuration import DualEncoderConfig
 from libs.nn.modeling import DualEncoder
@@ -28,7 +29,8 @@ from libs.data_helpers.constants import (
     USE_GRADIENT_CACHE,
     QUERY_SUB_BATCH,
     REGULATE_FACTOR,
-    USE_HARDNEG_INBATCH
+    USE_HARDNEG_INBATCH,
+    USE_GRADIENT_ACCUMULATE
 )
 
 
@@ -70,7 +72,7 @@ class DualEncoderTrainer(object):
         self.iterators = {k: iter(v) for k, v in datasets.items()}
         self._setup_pipeline()
         self._setup_logging()
-        self.pipeline_computation_mapping = {
+        self.pipeline_accumuate_computation_mapping = {
             INBATCH_PIPELINE_NAME: {
                 "gc": self.inbatch_step_fn_gc,
                 "base": self.inbatch_step_fn
@@ -88,7 +90,68 @@ class DualEncoderTrainer(object):
                 "base": self.hard_step_fn
             }
         }
+        self.pipeline_biward_computation_mapping = {
+            INBATCH_PIPELINE_NAME: {
+                "gc": self.inbatch_biward_step_fn_gc,
+                "base": self.inbatch_biward_step_fn
+            },
+            POS_PIPELINE_NAME: {
+                "gc": self.pos_biward_step_fn_gc,
+                "base": self.pos_biward_step_fn
+            },
+            POSHARD_PIPELINE_NAME: {
+                "gc": self.poshard_biward_step_fn_gc,
+                "base": self.poshard_biward_step_fn
+            },
+            HARD_PIPELINE_NAME: {
+                "gc": self.hard_biward_step_fn_gc,
+                "base": self.hard_biward_step_fn
+            }            
+        }
         self.graph_cache = {}
+        self._prebuild_graph_if_needed()
+    
+    def _prebuild_graph_if_needed(self):
+        """Build computation graphs in advanced."""
+
+        should_build_graph = {pipeline_type: self.config.pipeline_config[pipeline_type][USE_GRADIENT_CACHE]
+                for pipeline_type in self._available_pipelines}
+        
+        if len(should_build_graph) == 0:
+            return
+
+        # params backward graph for query encoder
+        self.get_params_backward_graph(is_query_encoder=True)
+
+        # params backward graph for context encoder
+        self.get_params_backward_graph(is_query_encoder=False)
+
+        # no tracking gradient graph for query encoder
+        self.get_no_tracking_gradient_forward_graph(is_query_encoder=True)
+
+        # no tracking gradient graph for context encoder
+        self.get_no_tracking_gradient_forward_graph(is_query_encoder=False)
+
+        # tracking gradient biward graph for query encoder
+        self.get_tracking_gradient_biward_graph(is_query_encoder=True)
+
+        # tracking gradient biward graph for context encoder
+        self.get_tracking_gradient_biward_graph(is_query_encoder=False)
+
+        for pipeline_type in self._available_pipelines:
+            # query batch forward graph
+            self.get_batch_forward_graph(
+                batch_size=self.config.pipeline_config[pipeline_type][FORWARD_BATCH_SIZE],
+                sub_batch_size=self.config.pipeline_config[GRADIENT_CACHE_CONFIG][QUERY_SUB_BATCH],
+                is_query_encoder=True
+            )
+            
+            # context batch forward graph
+            self.get_batch_forward_graph(
+                batch_size=self.config.pipeline_config[pipeline_type][FORWARD_BATCH_SIZE],
+                sub_batch_size=self.config.pipeline_config[GRADIENT_CACHE_CONFIG][CONTEXT_SUB_BATCH],
+                is_query_encoder=False
+            )
 
     def _setup_pipeline(self):
         """Setup data pipelines for fetching data item."""
@@ -142,13 +205,21 @@ class DualEncoderTrainer(object):
                  for _ in range(backward_accumulate_steps)]
         return pipeline_name, items
 
-    def get_step_fn(self, pipeline_type, computation_type=None):
-        """Get computation function from pipeline type."""
+    def get_step_fn_accumulate(self, pipeline_type, computation_type=None):
+        """Get computation function when using gradient accumulation from pipeline type."""
 
         if computation_type is None:
             computation_type = "gc" if self.config.pipeline_config[
                 pipeline_type][USE_GRADIENT_CACHE] else "base"
-        return self.pipeline_computation_mapping[pipeline_type][computation_type]
+        return self.pipeline_accumuate_computation_mapping[pipeline_type][computation_type]
+    
+    def get_step_fn_biward(self, pipeline_type, computation_type=None):
+        """Get computation function from pipeline type when not using gradient accumulation."""
+
+        if computation_type is None:
+            computation_type = "gc" if self.config.pipeline_config[
+                pipeline_type][USE_GRADIENT_CACHE] else "base"
+        return self.pipeline_biward_computation_mapping[pipeline_type][computation_type]
 
     def _setup_logging(self):
         """Setup logging state that is used during training process."""
@@ -165,6 +236,27 @@ class DualEncoderTrainer(object):
                 for k in self._available_pipelines
             }
         }
+
+    def train_step(self, pipeline_type, items: List):
+        """A train step can combine multiple forwards and backwards but only one parameter update."""
+
+        should_accumulate = self.config.pipeline_config[pipeline_type][NUM_BACKWARD_ACCUMULATE_STEPS] == 1 \
+            and self.config.pipeline_config[pipeline_type][USE_GRADIENT_ACCUMULATE]
+        
+        if should_accumulate:
+            step_fn = self.get_step_fn_accumulate(pipeline_type)
+            loss, grads = self.accumulate_step(step_fn, items)
+            self.strategy.run(
+                self.update_params,
+                args=(grads,)
+            )
+            return loss
+        else:
+            step_fn = self.get_step_fn_biward(pipeline_type)
+            item = items[0]
+            loss = self.strategy.run(self.inbatch_biward_step_fn, args=(item,))
+            loss = self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None)
+            return loss
 
     def accumulate_step(self, step_fn, items):
         """Run multiple forward-backward passes, return the accumulated loss and grads.
@@ -246,16 +338,6 @@ class DualEncoderTrainer(object):
             grads, self.dual_encoder.trainable_variables), experimental_aggregate_gradients=False)
     
     def train(self):
-        """Training loop."""
-        truth_array = [self.config.pipeline_config[pipeline_type]
-                       [NUM_BACKWARD_ACCUMULATE_STEPS] == 1 for pipeline_type in self._available_pipelines]
-        should_train_accumulate = not all(truth_array)
-        if should_train_accumulate:
-            self.train_accumulate()
-        else:
-            self.train_no_accumulate()
-
-    def train_accumulate(self):
         """Training loop using gradient accumulation."""
 
         trained_steps = self.optimizer.iterations.numpy()
@@ -264,34 +346,13 @@ class DualEncoderTrainer(object):
         self._mark_time = time.perf_counter()
         for step in range(trained_steps, self.config.num_train_steps):
             pipeline_type, items = self._fetch_items(step)
-            step_fn = self.get_step_fn(pipeline_type)
-            loss, grads = self.accumulate_step(step_fn, items)
-            self.strategy.run(
-                self.update_params,
-                args=(grads,)
-            )
-            self.log(step, pipeline_type, loss)
-            if (step + 1) % self.config.save_checkpoint_freq == 0:
-                self.save_checkpoint()
-    
-    def train_no_accumulate(self):
-        """Training loop without accumulation step."""
-
-        trained_steps = self.optimizer.iterations.numpy()
-        logger.info(
-            "************************ Start training (without accumulation) ************************")
-        self._mark_time = time.perf_counter()
-        for step in range(trained_steps, self.config.num_train_steps):
-            pipeline_type, items = self._fetch_items(step)
-            item = items[0]
-            loss = self.strategy.run(self.inbatch_biward_step, args=(item,))
-            loss = self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None)
+            loss = self.train_step(pipeline_type, items)
             self.log(step, pipeline_type, loss)
             if (step + 1) % self.config.save_checkpoint_freq == 0:
                 self.save_checkpoint()
 
     @tf.function    
-    def inbatch_biward_step(self, item):
+    def inbatch_biward_step_fn(self, item):
         """Forward, backward and update computation of inbatch pipeline without gradient cache, run on each training device."""
 
         query_input_ids = item["question/input_ids"]
@@ -326,6 +387,81 @@ class DualEncoderTrainer(object):
             loss = loss / self.strategy.num_replicas_in_sync
 
         grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
+        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+        return loss
+
+    @tf.function
+    def inbatch_biward_step_fn_gc(self, item):
+        """Forward, backward and update computation of inbatch pipeline with gradient cache, run on each training device."""
+
+        query_input_ids = item["question/input_ids"]
+        query_attention_mask = item["question/attention_mask"]
+        context_input_ids = item["context/input_ids"]
+        context_attention_mask = item["context/attention_mask"]
+        duplicate_mask = item["duplicate_mask"]
+        hardneg_mask = item["hardneg_mask"]
+
+        query_batch_size = query_input_ids.shape.as_list()[0]
+        context_batch_size = context_input_ids.shape.as_list()[0]
+
+        # no tracking gradient forward
+        query_sub_batch_size = \
+            self.config.pipeline_config[GRADIENT_CACHE_CONFIG][QUERY_SUB_BATCH]
+
+        query_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=query_batch_size,
+            sub_batch_size=query_sub_batch_size,
+            is_query_encoder=True
+        )
+        query_input_ids_3d, query_attention_mask_3d, query_embedding_tensor = \
+            query_batch_forward_graph(query_input_ids, query_attention_mask)
+
+        context_sub_batch_size = \
+            self.config.pipeline_config[GRADIENT_CACHE_CONFIG][CONTEXT_SUB_BATCH]
+
+        context_batch_forward_graph = self.get_batch_forward_graph(
+            batch_size=context_batch_size,
+            sub_batch_size=context_sub_batch_size,
+            is_query_encoder=False
+        )
+        context_input_ids_3d, context_attention_mask_3d, \
+            context_embedding_tensor = \
+                context_batch_forward_graph(context_input_ids, context_attention_mask)
+
+        # backward from loss to embeddings
+        query_embedding = query_embedding_tensor[:query_batch_size]
+        context_embedding = context_embedding_tensor[
+            :context_batch_size]
+
+        loss, embedding_grads = self.embedding_backward_inbatch(
+            query_embedding, context_embedding, duplicate_mask, hardneg_mask)
+
+        # backward from embeddings to parameters
+        query_embedding_grads = embedding_grads["query"]
+        query_multiplier = (query_batch_size - 1) // query_sub_batch_size + 1
+        query_padding = query_multiplier * query_sub_batch_size - query_batch_size
+        query_embedding_grads_padded = tf.pad(
+            query_embedding_grads,
+            [[0, query_padding], [0, 0]]
+        )
+        query_params_backward_graph = self.get_params_backward_graph(True)
+        query_grads = query_params_backward_graph(
+            query_input_ids_3d, query_attention_mask_3d, query_embedding_grads_padded)
+
+        context_embedding_grads = embedding_grads["context"]
+        context_multiplier = (
+            context_batch_size - 1) // context_sub_batch_size + 1
+        context_padding = context_multiplier * \
+            context_sub_batch_size - context_batch_size
+        context_embedding_grads_padded = tf.pad(
+            context_embedding_grads,
+            [[0, context_padding], [0, 0]]
+        )
+        context_params_backward_graph = self.get_params_backward_graph(False)
+        context_grads = context_params_backward_graph(
+            context_input_ids_3d, context_attention_mask_3d, context_embedding_grads_padded)
+        grads = query_grads + context_grads  # concatenate list
+
         self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
         return loss
 
@@ -521,6 +657,12 @@ class DualEncoderTrainer(object):
         return self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None), \
             [self.strategy.reduce(tf.distribute.ReduceOp.SUM,
                                   grad, axis=None) for grad in grads]
+    
+    def pos_biward_step_fn(self, item):
+        pass
+
+    def pos_biward_step_fn_gc(self, item):
+        pass
 
     def pos_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
@@ -768,6 +910,14 @@ class DualEncoderTrainer(object):
         grads = query_grads + context_grads  # concatenate list
 
         return self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None), grads
+
+    @tf.function    
+    def poshard_biward_step_fn(self, item):
+        pass
+
+    @tf.function
+    def poshard_biward_step_fn_gc(self, item):
+        pass
 
     def poshard_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
@@ -1083,6 +1233,13 @@ class DualEncoderTrainer(object):
         grads = query_grads + context_grads  # concatenate list
 
         return self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None), grads
+
+    @tf.function
+    def hard_biward_step_fn(self, item):
+        pass
+
+    def hard_biward_step_fn_gc(self, item):
+        pass
 
     def hard_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
