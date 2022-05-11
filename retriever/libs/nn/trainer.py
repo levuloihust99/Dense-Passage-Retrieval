@@ -1584,7 +1584,7 @@ class DualEncoderTrainer(object):
             loss = loss / self.strategy.num_replicas_in_sync
 
         grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
-        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+        # self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
 
         return loss
 
