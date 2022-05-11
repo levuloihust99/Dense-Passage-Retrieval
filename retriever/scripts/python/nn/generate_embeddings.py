@@ -104,7 +104,7 @@ def main():
         max_context_length=config.max_context_length,
         skip_size=config.skip_size
     )
-    num_examples = config.corpus_size
+    num_examples = config.corpus_size - config.skip_size
     global num_fake_examples
     num_fake_examples = 0
     if num_examples % (config.eval_batch_size * strategy.num_replicas_in_sync) != 0:
