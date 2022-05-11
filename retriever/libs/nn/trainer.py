@@ -260,7 +260,7 @@ class DualEncoderTrainer(object):
 
         trained_steps = self.optimizer.iterations.numpy()
         logger.info(
-            "************************ Start training (without accumulation) ************************")
+            "************************ Start training (with accumulation) ************************")
         self._mark_time = time.perf_counter()
         for step in range(trained_steps, self.config.num_train_steps):
             pipeline_type, items = self._fetch_items(step)
@@ -279,13 +279,13 @@ class DualEncoderTrainer(object):
 
         trained_steps = self.optimizer.iterations.numpy()
         logger.info(
-            "************************ Start training (with accumulation) ************************")
+            "************************ Start training (without accumulation) ************************")
         self._mark_time = time.perf_counter()
         for step in range(trained_steps, self.config.num_train_steps):
             pipeline_type, items = self._fetch_items(step)
             item = items[0]
             loss = self.strategy.run(self.inbatch_biward_step, args=(item,))
-            loss = self.strategy.reduce(tf.distribute.ReduceOp.SUM, axis=None)
+            loss = self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None)
             self.log(step, pipeline_type, loss)
             if (step + 1) % self.config.logging_steps == 0:
                 self.save_checkpoint()
