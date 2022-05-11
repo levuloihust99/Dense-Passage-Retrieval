@@ -213,11 +213,11 @@ def generate_embeddings_and_sequential_write():
             # dumping
             file_path = os.path.join(config.embedding_dir, "corpus_embedding_splitted_{:03d}.pkl".format(counter))
             writer = tf.io.gfile.GFile(file_path, "wb")
-            logger.info("Dumped {} embeddings to {}".format(config.num_embeddings_per_file, file_path))
             counter += 1
             dumper = pickle.Pickler(writer)
             dumper.dump(data_to_be_dumped)
             writer.close()
+            logger.info("Dumped {} embeddings to {}".format(config.num_embeddings_per_file, file_path))
     
     if accumulate_embedding.shape.as_list()[0] > 0:
         # data to be dumped
@@ -225,10 +225,12 @@ def generate_embeddings_and_sequential_write():
         data_to_be_dumped = [(info["article_id"], emb) for emb, info in zip(accumulate_embedding, auxiliary_info)]
 
         # dumping
-        writer = tf.io.gfile.GFile(os.path.join(config.embedding_dir, "corpus_embedding_splitted_{:03d}".format(idx)), "wb")
+        file_path = os.path.join(config.embedding_dir, "corpus_embedding_splitted_{:03d}".format(idx))
+        writer = tf.io.gfile.GFile(file_path, "wb")
         dumper = pickle.Pickler(writer)
         dumper.dump(data_to_be_dumped)
         writer.close()
+        logger.info("Dumped {} embeddings to {}".format(accumulate_embedding.shape.as_list()[0], file_path))
 
 
 if __name__ == "__main__":
