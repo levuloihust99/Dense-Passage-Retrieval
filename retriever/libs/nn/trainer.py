@@ -271,7 +271,7 @@ class DualEncoderTrainer(object):
                 args=(grads,)
             )
             self.log(step, pipeline_type, loss)
-            if (step + 1) % self.config.logging_steps == 0:
+            if (step + 1) % self.config.save_checkpoint_freq == 0:
                 self.save_checkpoint()
     
     def train_no_accumulate(self):
@@ -287,7 +287,7 @@ class DualEncoderTrainer(object):
             loss = self.strategy.run(self.inbatch_biward_step, args=(item,))
             loss = self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None)
             self.log(step, pipeline_type, loss)
-            if (step + 1) % self.config.logging_steps == 0:
+            if (step + 1) % self.config.save_checkpoint_freq == 0:
                 self.save_checkpoint()
 
     @tf.function    
