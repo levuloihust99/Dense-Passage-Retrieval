@@ -342,7 +342,7 @@ class DualEncoderTrainer(object):
 
         trained_steps = self.optimizer.iterations.numpy()
         logger.info(
-            "************************ Start training (with accumulation) ************************")
+            "************************ Start training ************************")
         self._mark_time = time.perf_counter()
         for step in range(trained_steps, self.config.num_train_steps):
             pipeline_type, items = self._fetch_items(step)
