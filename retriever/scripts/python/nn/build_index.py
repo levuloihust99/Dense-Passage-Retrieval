@@ -30,7 +30,7 @@ def indexing(embedding_dir, index_path, hidden_size):
     embedding_files = [os.path.join(embedding_dir, f) for f in embedding_files]
     for f in tqdm(embedding_files):
         with tf.io.gfile.GFile(f, "rb") as reader:
-            pickler = pickle.Pickler(reader)
+            pickler = pickle.Unpickler(reader)
             embeddings = pickler.load(reader)
         data_to_be_indexed = [(e[0], e[1].numpy()) for e in embeddings]
         indexer.index_data(data_to_be_indexed)
