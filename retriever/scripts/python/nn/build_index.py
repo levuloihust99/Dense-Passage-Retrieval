@@ -4,8 +4,9 @@ import pickle
 import argparse
 import logging
 import tensorflow as tf
-from libs.faiss_indexer import DenseFlatIndexer
+from tqdm import tqdm
 
+from libs.faiss_indexer import DenseFlatIndexer
 from libs.utils.logging import add_color_formater
 
 
@@ -27,9 +28,10 @@ def indexing(embedding_dir, index_path, hidden_size):
     embedding_files = tf.io.gfile.listdir(embedding_dir)
     embedding_files = sorted(embedding_files)
     embedding_files = [os.path.join(embedding_dir, f) for f in embedding_files]
-    for idx, f in enumerate(embedding_files):
-        with open(f, "rb") as reader:
-            embeddings = pickle.load(reader)
+    for f in tqdm(embedding_files):
+        with tf.io.gfile.GFile(f, "rb") as reader:
+            pickler = pickle.Pickler(reader)
+            embeddings = pickler.load(reader)
         data_to_be_indexed = [(e[0], e[1].numpy()) for e in embeddings]
         indexer.index_data(data_to_be_indexed)
         logger.info("Indexed {} embeddings.".format(len(embeddings)))
