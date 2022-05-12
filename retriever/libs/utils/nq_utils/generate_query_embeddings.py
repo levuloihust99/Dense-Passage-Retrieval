@@ -60,7 +60,7 @@ def main():
         query_dataset=query_dataset,
         query_encoder=query_encoder
     )
-    writer = open(args.embedding_path, "wb")
+    writer = tf.io.gfile.GFile(args.embedding_path, "wb")
     pickler = pickle.Pickler(writer)
     pickler.dump(query_embeddings)
     writer.close()
