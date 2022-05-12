@@ -19,8 +19,10 @@ add_color_formater(logging.root)
 
 
 def load_queries(qas_path):
-    with jsonlines.open(qas_path) as reader:
-        queries = [item["question"] for item in reader]
+    read_stream = tf.io.gfile.GFile(qas_path)
+    reader = jsonlines.Reader(read_stream)
+    queries = [item["question"] for item in reader]
+    read_stream.close()
     return queries
 
 
