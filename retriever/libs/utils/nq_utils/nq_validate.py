@@ -108,7 +108,7 @@ def main():
         for idx, item in tqdm(enumerate(reader), total=args.corpus_size):
             corpus_dict[item["article_id"]] = (item["text"], item["title"])
 
-    search_results = query_index(query_embeddings[:100], index_hosts, args.num_queries_per_request, args.top_docs)
+    search_results = query_index(query_embeddings, index_hosts, args.num_queries_per_request, args.top_docs)
     answers_list = load_answers(args.qas_path)
 
     stats = calculate_matches(
