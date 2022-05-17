@@ -120,10 +120,12 @@ def main():
     )
     top_hits = stats.top_k_hits
     top_hits = [hit / len(answers_list) * 100 for hit in top_hits]
-    pretty_results = ["Top {:03d}: {:.2f}".format(idx + 1, hit) for idx, hit in enumerate(top_hits)]
+    pretty_results = ["Top {:03d}: {}".format(idx + 1, hit) for idx, hit in enumerate(top_hits)]
     pretty_results = "\n".join(pretty_results)
     with tf.io.gfile.GFile(os.path.join(args.result_dir, "top_hits.txt"), "w") as writer:
         writer.write(pretty_results + "\n")
+    with tf.io.gfile.GFile(os.path.join(args.result_dir, "match_matrix.txt"), "w") as writer:
+        writer.write(json.dumps(stats.questions_doc_hit) + "\n")
 
 
 if __name__ == "__main__":
