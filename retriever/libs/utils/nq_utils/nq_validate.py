@@ -111,15 +111,15 @@ def main():
     query_embeddings = get_cache_query_embeddings(args.cache_path)
     index_hosts = args.index_hosts.split(',')
 
+    search_results = query_index(query_embeddings, index_hosts, args.num_queries_per_request, args.top_docs)
+    answers_list = load_answers(args.qas_path)
+
     global corpus_dict
     corpus_dict = {}
     with tf.io.gfile.GFile(args.corpus_path) as fr:
         reader = jsonlines.Reader(fr)
         for idx, item in tqdm(enumerate(reader), total=args.corpus_size):
             corpus_dict[item["article_id"]] = (item["text"], item["title"])
-
-    search_results = query_index(query_embeddings, index_hosts, args.num_queries_per_request, args.top_docs)
-    answers_list = load_answers(args.qas_path)
 
     stats = calculate_matches(
         all_docs=corpus_dict,
