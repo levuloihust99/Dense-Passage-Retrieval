@@ -5,12 +5,18 @@ import base64
 import requests
 import argparse
 import jsonlines
+import logging
 import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
 
 from typing import List, Tuple
 from libs.utils.nq_utils.qa_validation import calculate_matches
+from libs.utils.logging import add_color_formater
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+add_color_formater(logging.root)
 
 
 def load_answers(qas_path):
@@ -44,8 +50,12 @@ def query_index(query_embeddings, index_hosts, num_queries_per_request, top_docs
         payload = {"message": message, "top_docs": top_docs}
 
         for idx, index_host in enumerate(index_hosts):
-            resp = requests.post("{}/search".format(index_host), data=json.dumps(payload), headers=request_headers)
-            output_message = resp.json()["message"]
+            resp = requests.post("{}/search".format(index_host), data=json.dumps(payload), headers=request_headers, timeout=1000)
+            try:
+                output_message = resp.json()["message"]
+            except Exception as e:
+                logger.info("There is some exception")
+
             output_message = base64.b64decode(output_message.encode())
             per_host_search_results = pickle.loads(output_message)
             search_results[idx].extend(per_host_search_results)
@@ -84,7 +94,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cache-path", required=True)
     parser.add_argument("--index-hosts", required=True)
-    parser.add_argument("--num-queries-per-request", type=int, default=100)
+    parser.add_argument("--num-queries-per-request", type=int, default=50)
     parser.add_argument("--top-docs", default=100, type=int)
     parser.add_argument("--corpus-size", type=int, default=None)
     parser.add_argument("--corpus-path", required=True)
