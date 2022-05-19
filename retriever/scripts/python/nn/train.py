@@ -15,6 +15,7 @@ from libs.constants import TOKENIZER_MAPPING, MODEL_MAPPING
 from libs.utils.setup import setup_distribute_strategy, setup_memory_growth, setup_random
 from libs.utils.logging import add_color_formater
 from libs.data_helpers.data_pipeline import get_pipelines
+from libs.nn.utils import validate_config
 
 
 logging.basicConfig(level=logging.INFO)
@@ -88,6 +89,7 @@ def main():
 
     # instantiate configuration
     config = DualEncoderConfig(**hparams)
+    validate_config(config)
     config_dir = os.path.dirname(config.config_file)
 
     # setup environment
