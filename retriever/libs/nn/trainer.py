@@ -543,7 +543,10 @@ class DualEncoderTrainer(object):
         context_input_ids = item["context/input_ids"]
         context_attention_mask = item["context/attention_mask"]
         duplicate_mask = item["duplicate_mask"]
-        hardneg_mask = item["hardneg_mask"]
+        if self.config.pipeline_config[INBATCH_PIPELINE_NAME][USE_HARDNEG_INBATCH]:
+            hardneg_mask = item["hardneg_mask"]
+        else:
+            hardneg_mask = None
 
         is_parallel_training = isinstance(
             query_input_ids, tf.distribute.DistributedValues)
