@@ -363,7 +363,7 @@ class DualEncoderTrainer(object):
         if self.config.pipeline_config[INBATCH_PIPELINE_NAME][USE_HARDNEG_INBATCH]:
             hardneg_mask = item["hardneg_mask"]
         else:
-            hardneg_mask = None
+            hardneg_mask = tf.constant(0)
 
         with tf.GradientTape() as tape:
             query_embedding, context_embedding = self.dual_encoder(
