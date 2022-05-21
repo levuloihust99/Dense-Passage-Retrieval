@@ -165,7 +165,7 @@ class PosPipeline(Pipeline):
         dataset = dataset.map(self.decode, num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.map(self.sample, num_parallel_calls=tf.data.AUTOTUNE)
         if not self.deterministic:
-            dataset = dataset.shuffle(buffer_size=10000)
+            dataset = dataset.shuffle(buffer_size=60000)
         dataset = dataset.repeat()
         dataset = dataset.window(
             self.forward_batch_size + self.contrastive_size,
@@ -333,7 +333,7 @@ class PosHardPipeline(Pipeline):
         dataset = dataset.map(self.sample_and_pad,
                               num_parallel_calls=tf.data.AUTOTUNE)
         if not self.deterministic:
-            dataset = dataset.shuffle(buffer_size=10000)
+            dataset = dataset.shuffle(buffer_size=60000)
         dataset = dataset.repeat()
         dataset = dataset.batch(self.forward_batch_size)
         return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
@@ -516,7 +516,7 @@ class HardPipeline(Pipeline):
             hard_only_dataset = hard_only_dataset.map(
                 self.sample_hard_only, num_parallel_calls=tf.data.AUTOTUNE)
             if not self.deterministic:
-                hard_only_dataset = hard_only_dataset.shuffle(buffer_size=10000)
+                hard_only_dataset = hard_only_dataset.shuffle(buffer_size=60000)
             hard_only_dataset = hard_only_dataset.repeat()
             hard_only_dataset = hard_only_dataset.window(
                 self.forward_batch_size + self.contrastive_size, shift=self.forward_batch_size
@@ -593,7 +593,7 @@ class HardPipeline(Pipeline):
         hard_only_dataset = hard_only_dataset.map(
             self.sample_hard_only, num_parallel_calls=tf.data.AUTOTUNE)
         if not self.deterministic:
-            hard_only_dataset = hard_only_dataset.shuffle(buffer_size=10000)
+            hard_only_dataset = hard_only_dataset.shuffle(buffer_size=60000)
         hard_only_dataset = hard_only_dataset.repeat()
         hard_only_dataset = hard_only_dataset.window(
             self.forward_batch_size + sample_from_hard_only, shift=window_shift)
@@ -610,7 +610,7 @@ class HardPipeline(Pipeline):
         hard_none_dataset = hard_none_dataset.map(
             self.sample_hard_none, num_parallel_calls=tf.data.AUTOTUNE)
         if not self.deterministic:
-            hard_none_dataset = hard_none_dataset.shuffle(buffer_size=10000)
+            hard_none_dataset = hard_none_dataset.shuffle(buffer_size=60000)
         hard_none_dataset = hard_none_dataset.repeat()
         hard_none_dataset = hard_none_dataset.batch(sample_from_hard_none)
         # hard none pipeline transformations />
@@ -888,7 +888,7 @@ class InbatchPipeline(Pipeline):
         dataset = dataset.map(self.decode, num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.map(self.sample, num_parallel_calls=tf.data.AUTOTUNE)
         if not self.deterministic:
-            dataset = dataset.shuffle(buffer_size=10000)
+            dataset = dataset.shuffle(buffer_size=60000)
         dataset = dataset.repeat()
         dataset = dataset.batch(self.forward_batch_size)
         if self.use_hardneg:
