@@ -161,7 +161,7 @@ def main():
             optimizer=optimizer,
         )
         ckpt_manager = tf.train.CheckpointManager(
-            ckpt, config.checkpoint_dir, max_to_keep=5)
+            ckpt, config.checkpoint_dir, max_to_keep=config.keep_checkpoint_max)
         logger.info("Done creating checkpoint manager in {}s".format(
             time.perf_counter() - start_time))
 
