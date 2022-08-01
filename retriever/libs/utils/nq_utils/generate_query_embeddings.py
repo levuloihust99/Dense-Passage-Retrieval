@@ -6,6 +6,7 @@ import logging
 import tensorflow as tf
 
 from libs.constants import TOKENIZER_MAPPING
+from libs.utils.setup import setup_memory_growth
 from scripts.python.nn.evaluate import (
     load_query_encoder,
     create_query_dataset,
@@ -37,6 +38,8 @@ def main():
     parser.add_argument("--embedding-path", required=True)
 
     args = parser.parse_args()
+
+    setup_memory_growth()
 
     cache_dir = os.path.dirname(args.embedding_path)
     if not tf.io.gfile.exists(cache_dir):
