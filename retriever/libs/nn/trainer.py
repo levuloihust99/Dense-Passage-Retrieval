@@ -240,6 +240,51 @@ class DualEncoderTrainer(object):
     def train_step(self, pipeline_type, items: List):
         """A train step can combine multiple forwards and backwards but only one parameter update."""
 
+        # < debug
+        if self.config.debug:
+            # accumulate
+            step_fn_accumulate_base = self.get_step_fn_accumulate(
+                pipeline_type=pipeline_type, computation_type="base")
+            step_fn_accumulate_gc = self.get_step_fn_accumulate(
+                pipeline_type=pipeline_type, computation_type="gc")
+            loss, accumulate_base_grads = self.accumulate_step(step_fn_accumulate_base, items)
+            logger.info("Accumulate base loss: {}".format(loss))
+            loss, accumulate_gc_grads = self.accumulate_step(step_fn_accumulate_gc, items)
+            logger.info("Accumulate GC loss: {}".format(loss))
+
+            # biward
+            step_fn_biward_base = self.get_step_fn_biward(
+                pipeline_type=pipeline_type, computation_type="base")
+            loss, grads = self.strategy.run(step_fn_biward_base, args=(items[0],))
+            loss = self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None)
+            biward_base_grads = [self.strategy.reduce(tf.distribute.ReduceOp.SUM, grad, axis=None)
+                        for grad in grads]
+            logger.info("Biward base loss: {}".format(loss))
+
+            step_fn_biward_gc = self.get_step_fn_biward(
+                pipeline_type=pipeline_type, computation_type="gc")
+            loss, grads = self.strategy.run(step_fn_biward_gc, args=(items[0],))
+            loss = self.strategy.reduce(tf.distribute.ReduceOp.SUM, loss, axis=None)
+            biward_gc_grads = [self.strategy.reduce(tf.distribute.ReduceOp.SUM, grad, axis=None)
+                        for grad in grads]
+            logger.info("Biward GC loss: {}".format(loss))
+
+            # gradient check
+            truths = [
+                tf.reduce_all(
+                    (tf.abs(acc_base_grad - acc_gc_grad) < 1e-4) &
+                    (tf.abs(acc_gc_grad - biward_base_grad) < 1e-4) &
+                    (tf.abs(biward_base_grad - biward_gc_grad) < 1e-4)
+                )
+                for acc_base_grad, acc_gc_grad, biward_base_grad, biward_gc_grad in
+                zip(accumulate_base_grads, accumulate_gc_grads, biward_base_grads, biward_gc_grads)
+            ]
+            gradient_check = all(truths)
+            logger.info("Gradient check: {}".format(gradient_check))
+            logger.info("Done checking gradient.")
+            exit(0)
+        # debug />
+
         should_accumulate = self.config.pipeline_config[pipeline_type][NUM_BACKWARD_ACCUMULATE_STEPS] == 1 \
             and self.config.pipeline_config[pipeline_type][USE_GRADIENT_ACCUMULATE]
         
@@ -371,7 +416,7 @@ class DualEncoderTrainer(object):
                 query_attention_mask=query_attention_mask,
                 context_input_ids=context_input_ids,
                 context_attention_mask=context_attention_mask,
-                training=True
+                training=not self.config.debug
             )
 
             loss = self.loss_calculator.compute(
@@ -387,8 +432,11 @@ class DualEncoderTrainer(object):
             loss = loss / self.strategy.num_replicas_in_sync
 
         grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
-        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
-        return loss
+        if not self.config.debug:
+            self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+            return loss
+        else:
+            return loss, grads
 
     @tf.function
     def inbatch_biward_step_fn_gc(self, item):
@@ -465,8 +513,11 @@ class DualEncoderTrainer(object):
             context_input_ids_3d, context_attention_mask_3d, context_embedding_grads_padded)
         grads = query_grads + context_grads  # concatenate list
 
-        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
-        return loss
+        if not self.config.debug:
+            self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+            return loss
+        else:
+            return loss, grads
 
     def inbatch_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
@@ -508,7 +559,7 @@ class DualEncoderTrainer(object):
                 query_attention_mask=query_attention_mask,
                 context_input_ids=context_input_ids,
                 context_attention_mask=context_attention_mask,
-                training=True
+                training=not self.config.debug
             )
 
             loss = self.loss_calculator.compute(
@@ -676,13 +727,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["positive_context/input_ids"],
                 context_attention_mask=grouped_data["positive_context/attention_mask"],
-                training=True
+                training=not self.config.debug
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=True
+                training=not self.config.debug
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -697,8 +748,11 @@ class DualEncoderTrainer(object):
             loss = loss / self.strategy.num_replicas_in_sync
 
         grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
-        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
-        return loss
+        if not self.config.debug:
+            self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+            return loss
+        else:
+            return loss, grads
 
     def pos_biward_step_fn_gc(self, item):
         """Forward, backward and update computation of pos pipeline with gradient cache, run on each training device."""
@@ -801,9 +855,11 @@ class DualEncoderTrainer(object):
         context_grads = [positive_grad + negative_grad
                          for positive_grad, negative_grad in zip(positive_context_grads, negative_context_grads)]
         grads = query_grads + context_grads  # concatenate list
-        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
-
-        return loss
+        if not self.config.debug:
+            self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+            return loss
+        else:
+            return loss, grads
 
     def pos_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
@@ -837,13 +893,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["positive_context/input_ids"],
                 context_attention_mask=grouped_data["positive_context/attention_mask"],
-                training=True
+                training=not self.config.debug
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=True
+                training=not self.config.debug
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -1074,13 +1130,13 @@ class DualEncoderTrainer(object):
                 input_ids=query_input_ids,
                 attention_mask=query_attention_mask,
                 return_dict=True,
-                training=True
+                training=not self.config.debug
             ).last_hidden_state[:, 0, :]
             positive_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=positive_context_input_ids,
                 attention_mask=positive_context_attention_mask,
                 return_dict=True,
-                training=True
+                training=not self.config.debug
             ).last_hidden_state[:, 0, :]
 
             # forward hard negative contexts with mask
@@ -1088,7 +1144,7 @@ class DualEncoderTrainer(object):
                 input_ids=hardneg_context_input_ids,
                 attention_mask=hardneg_context_attention_mask,
                 return_dict=True,
-                training=True
+                training=not self.config.debug
             ).last_hidden_state[:, 0, :]
             hardneg_context_embedding = tf.reshape(
                 hardneg_context_embedding,
@@ -1111,8 +1167,11 @@ class DualEncoderTrainer(object):
             loss = loss / self.strategy.num_replicas_in_sync
 
         grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
-        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
-        return loss
+        if not self.config.debug:
+            self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+            return loss
+        else:
+            return loss, grads
 
     @tf.function
     def poshard_biward_step_fn_gc(self, item):
@@ -1238,9 +1297,11 @@ class DualEncoderTrainer(object):
             in zip(positive_context_grads, hardneg_context_grads)
         ]
         grads = query_grads + context_grads  # concatenate list
-        self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
-
-        return loss
+        if not self.config.debug:
+            self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+            return loss
+        else:
+            return loss, grads
 
     def poshard_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
@@ -1284,13 +1345,13 @@ class DualEncoderTrainer(object):
                 input_ids=query_input_ids,
                 attention_mask=query_attention_mask,
                 return_dict=True,
-                training=True
+                training=not self.config.debug
             ).last_hidden_state[:, 0, :]
             positive_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=positive_context_input_ids,
                 attention_mask=positive_context_attention_mask,
                 return_dict=True,
-                training=True
+                training=not self.config.debug
             ).last_hidden_state[:, 0, :]
 
             # forward hard negative contexts with mask
@@ -1298,7 +1359,7 @@ class DualEncoderTrainer(object):
                 input_ids=hardneg_context_input_ids,
                 attention_mask=hardneg_context_attention_mask,
                 return_dict=True,
-                training=True
+                training=not self.config.debug
             ).last_hidden_state[:, 0, :]
             hardneg_context_embedding = tf.reshape(
                 hardneg_context_embedding,
@@ -1569,13 +1630,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["hardneg_context/input_ids"],
                 context_attention_mask=grouped_data["hardneg_context/attention_mask"],
-                training=True
+                training=not self.config.debug
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=True
+                training=not self.config.debug
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -1590,9 +1651,11 @@ class DualEncoderTrainer(object):
             loss = loss / self.strategy.num_replicas_in_sync
 
         grads = tape.gradient(loss, self.dual_encoder.trainable_variables)
-        # self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
-
-        return loss
+        if not self.config.debug:
+            self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+            return loss
+        else:
+            return loss, grads
 
     def hard_biward_step_fn_gc(self, item):
         """Forward, backward and update computation of poshard pipeline with gradient cache, run on each training device."""
@@ -1695,9 +1758,11 @@ class DualEncoderTrainer(object):
         context_grads = [hardneg_grad + negative_grad
                          for hardneg_grad, negative_grad in zip(hardneg_context_grads, negative_context_grads)]
         grads = query_grads + context_grads  # concatenate list
-        # self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
-
-        return loss
+        if not self.config.debug:
+            self.optimizer.apply_gradients(zip(grads, self.dual_encoder.trainable_variables))
+            return loss
+        else:
+            return loss, grads
 
     def hard_step_fn(self, item):
         """One of step_fn functions, receive an item, then return loss and grads corresponding to that item.
@@ -1731,13 +1796,13 @@ class DualEncoderTrainer(object):
                 query_attention_mask=grouped_data["question/attention_mask"],
                 context_input_ids=grouped_data["hardneg_context/input_ids"],
                 context_attention_mask=grouped_data["hardneg_context/attention_mask"],
-                training=True
+                training=not self.config.debug
             )
             negative_context_embedding = self.dual_encoder.context_encoder(
                 input_ids=negative_samples["negative_context/input_ids"],
                 attention_mask=negative_samples["negative_context/attention_mask"],
                 return_dict=True,
-                training=True
+                training=not self.config.debug
             ).last_hidden_state[:, 0, :]
             loss = self.loss_calculator.compute(
                 inputs={
@@ -2258,7 +2323,7 @@ class DualEncoderTrainer(object):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 return_dict=True,
-                training=True
+                training=not self.config.debug
             )
             sequence_output = outputs.last_hidden_state
             pooled_output = sequence_output[:, 0, :]
@@ -2280,7 +2345,7 @@ class DualEncoderTrainer(object):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     return_dict=True,
-                    training=True
+                    training=not self.config.debug
                 )
                 sequence_output = outputs.last_hidden_state
                 pooled_output = sequence_output[:, 0, :]

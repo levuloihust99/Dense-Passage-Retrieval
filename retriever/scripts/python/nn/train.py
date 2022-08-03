@@ -32,6 +32,7 @@ def main():
     # argument parser
     parser = argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
 
+    parser.add_argument("--debug", action='store_const', const=True)
     parser.add_argument("--random-seed", type=int)
     # dual-encoder specific
     parser.add_argument("--model-name")

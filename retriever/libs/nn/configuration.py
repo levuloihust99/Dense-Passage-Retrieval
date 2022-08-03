@@ -32,6 +32,7 @@ class DualEncoderConfig(CommonConfig):
         self.random_seed = None
 
         # dual-encoder-specific
+        self.debug = False
         self.model_name = 'dual-encoder'
         self.model_arch = 'roberta'
         self.sim_score = 'dot_product'
