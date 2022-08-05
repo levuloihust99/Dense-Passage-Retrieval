@@ -44,6 +44,10 @@ def serve(request):
     output_message = base64.b64encode(output_message).decode()
     return sanic_json({"message": output_message})
 
+@app.route('/health', methods=['GET'])
+def health(request):
+    return sanic_json({"success": True})
+
 
 def main():
     parser = argparse.ArgumentParser()
