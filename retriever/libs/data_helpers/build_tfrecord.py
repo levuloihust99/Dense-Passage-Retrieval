@@ -353,7 +353,7 @@ def parallel_processing():
         create_example_func = partial(
             create_hard_none_example,
             tokenizer=tokenizer,
-            max_query_length=pipeline_config[MAX_QUERY_LENGTH])
+            max_context_length=pipeline_config[MAX_CONTEXT_LENGTH])
     else:
         raise Exception("Data type `{}` is not supported.".format(args.data_type))
 
