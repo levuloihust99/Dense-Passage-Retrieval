@@ -22,6 +22,7 @@ from libs.data_helpers.constants import (
     USE_HARD_NONE,
     USE_HARDNEG_INBATCH,
     USE_NUM_HARDNEGS_INBATCH,
+    SHUFFLE_BUFFER_SIZE,
     DataSourceType
 )
 
@@ -39,7 +40,8 @@ class PosPipeline(Pipeline):
         forward_batch_size: int,
         contrastive_size: int,
         data_source: Text,
-        deterministic: bool = False
+        deterministic: bool = False,
+        shuffle_buffer_size: int = 70000
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
@@ -47,6 +49,7 @@ class PosPipeline(Pipeline):
         self.contrastive_size = contrastive_size
         self.data_source = data_source
         self.deterministic = deterministic
+        self.shuffle_buffer_size = shuffle_buffer_size
         self.dataset_size = -1
 
         self.feature_description = {
@@ -165,7 +168,7 @@ class PosPipeline(Pipeline):
         dataset = dataset.map(self.decode, num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.map(self.sample, num_parallel_calls=tf.data.AUTOTUNE)
         if not self.deterministic:
-            dataset = dataset.shuffle(buffer_size=60000)
+            dataset = dataset.shuffle(buffer_size=self.shuffle_buffer_size)
         dataset = dataset.repeat()
         dataset = dataset.window(
             self.forward_batch_size + self.contrastive_size,
@@ -191,7 +194,8 @@ class PosHardPipeline(Pipeline):
         contrastive_size: int,
         limit_hardnegs: int,
         data_source: Text,
-        deterministic: bool = False
+        deterministic: bool = False,
+        shuffle_buffer_size: int = 70000
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
@@ -200,6 +204,7 @@ class PosHardPipeline(Pipeline):
         self.data_source = data_source
         self.limit_hardnegs = limit_hardnegs
         self.deterministic = deterministic
+        self.shuffle_buffer_size = shuffle_buffer_size
 
         self.feature_description = {
             "sample_id": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
@@ -333,7 +338,7 @@ class PosHardPipeline(Pipeline):
         dataset = dataset.map(self.sample_and_pad,
                               num_parallel_calls=tf.data.AUTOTUNE)
         if not self.deterministic:
-            dataset = dataset.shuffle(buffer_size=60000)
+            dataset = dataset.shuffle(buffer_size=self.shuffle_buffer_size)
         dataset = dataset.repeat()
         dataset = dataset.batch(self.forward_batch_size)
         return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
@@ -351,7 +356,8 @@ class HardPipeline(Pipeline):
         hard_none_data_source: Text,
         max_samplings: int = 100,
         use_hard_none: bool = True,
-        deterministic: bool = False
+        deterministic: bool = False,
+        shuffle_buffer_size: int = 70000
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
@@ -361,6 +367,7 @@ class HardPipeline(Pipeline):
         self.hard_only_data_source = hard_only_data_source
         self.hard_none_data_source = hard_none_data_source
         self.deterministic = deterministic
+        self.shuffle_buffer_size = shuffle_buffer_size
 
         self.hard_only_feature_description = {
             "sample_id": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
@@ -516,7 +523,7 @@ class HardPipeline(Pipeline):
             hard_only_dataset = hard_only_dataset.map(
                 self.sample_hard_only, num_parallel_calls=tf.data.AUTOTUNE)
             if not self.deterministic:
-                hard_only_dataset = hard_only_dataset.shuffle(buffer_size=60000)
+                hard_only_dataset = hard_only_dataset.shuffle(buffer_size=self.shuffle_buffer_size)
             hard_only_dataset = hard_only_dataset.repeat()
             hard_only_dataset = hard_only_dataset.window(
                 self.forward_batch_size + self.contrastive_size, shift=self.forward_batch_size
@@ -593,7 +600,7 @@ class HardPipeline(Pipeline):
         hard_only_dataset = hard_only_dataset.map(
             self.sample_hard_only, num_parallel_calls=tf.data.AUTOTUNE)
         if not self.deterministic:
-            hard_only_dataset = hard_only_dataset.shuffle(buffer_size=60000)
+            hard_only_dataset = hard_only_dataset.shuffle(buffer_size=self.shuffle_buffer_size)
         hard_only_dataset = hard_only_dataset.repeat()
         hard_only_dataset = hard_only_dataset.window(
             self.forward_batch_size + sample_from_hard_only, shift=window_shift)
@@ -610,7 +617,7 @@ class HardPipeline(Pipeline):
         hard_none_dataset = hard_none_dataset.map(
             self.sample_hard_none, num_parallel_calls=tf.data.AUTOTUNE)
         if not self.deterministic:
-            hard_none_dataset = hard_none_dataset.shuffle(buffer_size=60000)
+            hard_none_dataset = hard_none_dataset.shuffle(buffer_size=self.shuffle_buffer_size)
         hard_none_dataset = hard_none_dataset.repeat()
         hard_none_dataset = hard_none_dataset.batch(sample_from_hard_none)
         # hard none pipeline transformations />
@@ -714,7 +721,8 @@ class InbatchPipeline(Pipeline):
         data_source: Text,
         deterministic: bool = False, # for debug
         use_hardneg: bool = False,
-        use_num_hardnegs: int = 1
+        use_num_hardnegs: int = 1,
+        shuffle_buffer_size: int = 70000
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
@@ -723,6 +731,7 @@ class InbatchPipeline(Pipeline):
         self.deterministic = deterministic
         self.use_hardneg = use_hardneg
         self.use_num_hardnegs = use_num_hardnegs
+        self.shuffle_buffer_size = shuffle_buffer_size
         self.dataset_size = -1
 
         self.feature_description = {
@@ -888,7 +897,7 @@ class InbatchPipeline(Pipeline):
         dataset = dataset.map(self.decode, num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.map(self.sample, num_parallel_calls=tf.data.AUTOTUNE)
         if not self.deterministic:
-            dataset = dataset.shuffle(buffer_size=60000)
+            dataset = dataset.shuffle(buffer_size=self.shuffle_buffer_size)
         dataset = dataset.repeat()
         dataset = dataset.batch(self.forward_batch_size)
         if self.use_hardneg:
@@ -975,7 +984,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             data_source=pipeline_config[DATA_SOURCE][DataSourceType.ALL],
             deterministic=pipeline_config[INBATCH_PIPELINE_NAME][DETERMINISTIC],
             use_hardneg=pipeline_config[INBATCH_PIPELINE_NAME][USE_HARDNEG_INBATCH],
-            use_num_hardnegs=pipeline_config[INBATCH_PIPELINE_NAME][USE_NUM_HARDNEGS_INBATCH]
+            use_num_hardnegs=pipeline_config[INBATCH_PIPELINE_NAME][USE_NUM_HARDNEGS_INBATCH],
+            shuffle_buffer_size=pipeline_config[SHUFFLE_BUFFER_SIZE]
         )
         datasets[INBATCH_PIPELINE_NAME] = inbatch_pipeline.build()
 
@@ -986,7 +996,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             forward_batch_size=pipeline_config[POS_PIPELINE_NAME][FORWARD_BATCH_SIZE],
             contrastive_size=pipeline_config[POS_PIPELINE_NAME][CONTRASTIVE_SIZE],
             data_source=pipeline_config[DATA_SOURCE][DataSourceType.ALL_POS_ONLY],
-            deterministic=pipeline_config[POS_PIPELINE_NAME][DETERMINISTIC]
+            deterministic=pipeline_config[POS_PIPELINE_NAME][DETERMINISTIC],
+            shuffle_buffer_size=pipeline_config[SHUFFLE_BUFFER_SIZE]
         )
         datasets[POS_PIPELINE_NAME] = pos_pipeline.build()
 
@@ -998,7 +1009,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             contrastive_size=pipeline_config[POSHARD_PIPELINE_NAME][CONTRASTIVE_SIZE],
             limit_hardnegs=pipeline_config[LIMIT_HARDNEGS],
             data_source=pipeline_config[DATA_SOURCE][DataSourceType.HARD_ONLY],
-            deterministic=pipeline_config[POSHARD_PIPELINE_NAME][DETERMINISTIC]
+            deterministic=pipeline_config[POSHARD_PIPELINE_NAME][DETERMINISTIC],
+            shuffle_buffer_size=pipeline_config[SHUFFLE_BUFFER_SIZE]
         )
         datasets[POSHARD_PIPELINE_NAME] = poshard_pipeline.build()
 
@@ -1012,7 +1024,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             hard_only_data_source=pipeline_config[DATA_SOURCE][DataSourceType.HARD_ONLY],
             hard_none_data_source=pipeline_config[DATA_SOURCE][DataSourceType.HARD_NONE],
             use_hard_none=pipeline_config[HARD_PIPELINE_NAME][USE_HARD_NONE],
-            deterministic=pipeline_config[HARD_PIPELINE_NAME][DETERMINISTIC]
+            deterministic=pipeline_config[HARD_PIPELINE_NAME][DETERMINISTIC],
+            shuffle_buffer_size=pipeline_config[SHUFFLE_BUFFER_SIZE]
         )
         datasets[HARD_PIPELINE_NAME] = hard_pipeline.build()
     

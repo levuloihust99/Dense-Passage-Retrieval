@@ -11,6 +11,7 @@ HARD_PIPELINE_NAME = "hard"
 # ===============================================================
 # pipeline-specific
 FORWARD_BATCH_SIZE = "forward_batch_size"
+USE_GRADIENT_ACCUMULATE = "use_gradient_accumulate"
 NUM_BACKWARD_ACCUMULATE_STEPS = "num_backward_accumulate_steps"
 CONTRASTIVE_SIZE = "contrastive_size"
 USE_GRADIENT_CACHE = "use_gradient_cache"
@@ -27,7 +28,7 @@ TRAIN_MODE = "train_mode"
 LIMIT_HARDNEGS = "limit_hardnegs"
 PIPELINE_SEPERATE_SYMBOL = "+"
 REGULATE_FACTOR = "regulate_factor"
-USE_GRADIENT_ACCUMULATE = "use_gradient_accumulate"
+SHUFFLE_BUFFER_SIZE = "shuffle_buffer_size"
 
 # inbatch-specific
 USE_HARDNEG_INBATCH = "use_hardneg"
