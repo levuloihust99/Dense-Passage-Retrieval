@@ -23,6 +23,7 @@ from libs.data_helpers.constants import (
     USE_HARDNEG_INBATCH,
     USE_NUM_HARDNEGS_INBATCH,
     SHUFFLE_BUFFER_SIZE,
+    SHUFFLE_POSITIVE,
     DataSourceType
 )
 
@@ -41,7 +42,8 @@ class PosPipeline(Pipeline):
         contrastive_size: int,
         data_source: Text,
         deterministic: bool = False,
-        shuffle_buffer_size: int = 70000
+        shuffle_buffer_size: int = 70000,
+        shuffle_positive = False
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
@@ -51,6 +53,7 @@ class PosPipeline(Pipeline):
         self.deterministic = deterministic
         self.shuffle_buffer_size = shuffle_buffer_size
         self.dataset_size = -1
+        self.shuffle_positive = shuffle_positive
 
         self.feature_description = {
             "sample_id": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
@@ -86,19 +89,22 @@ class PosPipeline(Pipeline):
 
     @staticmethod
     def sample_attribute(input_ids, attention_mask):
-        compact = tf.stack([input_ids, attention_mask], axis=-1)
+        compact = tf.stack([input_ids, attention_mask], axis=-1) # [batch_size, seq_length]
         shuffled = tf.random.shuffle(compact)
         compact_sampled = shuffled[0]
-        input_ids_sampled = compact_sampled[:, 0]
-        attention_mask_sampled = compact_sampled[:, 1]
+        input_ids_sampled = compact_sampled[:, 0] # [seq_length]
+        attention_mask_sampled = compact_sampled[:, 1] # [seq_length]
         return input_ids_sampled, attention_mask_sampled
 
-    @staticmethod
-    def sample(item):
+    def sample(self, item):
         question_input_ids, question_attention_mask = PosPipeline.sample_attribute(
             item["question/input_ids"], item["question/attention_mask"])
-        positive_context_input_ids, positive_context_attention_mask = PosPipeline.sample_attribute(
-            item["positive_context/input_ids"], item["positive_context/attention_mask"])
+        if self.shuffle_positive:
+            positive_context_input_ids, positive_context_attention_mask = PosPipeline.sample_attribute(
+                item["positive_context/input_ids"], item["positive_context/attention_mask"])
+        else:
+            positive_context_input_ids = item["positive_context/input_ids"][0]
+            positive_context_attention_mask = item["positive_context/attention_mask"][0]
         return {
             "sample_id": item["sample_id"],
             "question/input_ids": question_input_ids,
@@ -195,7 +201,8 @@ class PosHardPipeline(Pipeline):
         limit_hardnegs: int,
         data_source: Text,
         deterministic: bool = False,
-        shuffle_buffer_size: int = 70000
+        shuffle_buffer_size: int = 70000,
+        shuffle_positive: bool = False
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
@@ -205,6 +212,7 @@ class PosHardPipeline(Pipeline):
         self.limit_hardnegs = limit_hardnegs
         self.deterministic = deterministic
         self.shuffle_buffer_size = shuffle_buffer_size
+        self.shuffle_positive = shuffle_positive
 
         self.feature_description = {
             "sample_id": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
@@ -262,8 +270,12 @@ class PosHardPipeline(Pipeline):
     def sample_and_pad(self, item):
         question_input_ids, question_attention_mask = PosPipeline.sample_attribute(
             item["question/input_ids"], item["question/attention_mask"])
-        positive_context_input_ids, positive_context_attention_mask = PosPipeline.sample_attribute(
-            item["positive_context/input_ids"], item["positive_context/attention_mask"])
+        if self.shuffle_positive:
+            positive_context_input_ids, positive_context_attention_mask = PosPipeline.sample_attribute(
+                item["positive_context/input_ids"], item["positive_context/attention_mask"])
+        else:
+            positive_context_input_ids = item["positive_context/input_ids"][0]
+            positive_context_attention_mask = item["positive_context/attention_mask"][0]
 
         def _sample_hardneg():
             hardneg_context_input_ids = item["hardneg_context/input_ids"]
@@ -722,7 +734,8 @@ class InbatchPipeline(Pipeline):
         deterministic: bool = False, # for debug
         use_hardneg: bool = False,
         use_num_hardnegs: int = 1,
-        shuffle_buffer_size: int = 70000
+        shuffle_buffer_size: int = 70000,
+        shuffle_positive: bool = False
     ):
         self.max_query_length = max_query_length
         self.max_context_length = max_context_length
@@ -733,6 +746,7 @@ class InbatchPipeline(Pipeline):
         self.use_num_hardnegs = use_num_hardnegs
         self.shuffle_buffer_size = shuffle_buffer_size
         self.dataset_size = -1
+        self.shuffle_positive = shuffle_positive
 
         self.feature_description = {
             "sample_id": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
@@ -797,8 +811,12 @@ class InbatchPipeline(Pipeline):
     def sample(self, item):
         question_input_ids, question_attention_mask = InbatchPipeline.sample_attribute(
             item["question/input_ids"], item["question/attention_mask"])
-        positive_context_input_ids, positive_context_attention_mask = InbatchPipeline.sample_attribute(
-            item["positive_context/input_ids"], item["positive_context/attention_mask"])
+        if self.shuffle_positive:
+            positive_context_input_ids, positive_context_attention_mask = InbatchPipeline.sample_attribute(
+                item["positive_context/input_ids"], item["positive_context/attention_mask"])
+        else:
+            positive_context_input_ids = item["positive_context/input_ids"]
+            positive_context_attention_mask = item["positive_context/attention_ask"]
         if self.use_hardneg:
             hardneg_context_input_ids = item["hardneg_context/input_ids"]
             hardneg_context_attention_mask = item["hardneg_context/attention_mask"]
@@ -985,7 +1003,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             deterministic=pipeline_config[INBATCH_PIPELINE_NAME][DETERMINISTIC],
             use_hardneg=pipeline_config[INBATCH_PIPELINE_NAME][USE_HARDNEG_INBATCH],
             use_num_hardnegs=pipeline_config[INBATCH_PIPELINE_NAME][USE_NUM_HARDNEGS_INBATCH],
-            shuffle_buffer_size=pipeline_config[SHUFFLE_BUFFER_SIZE]
+            shuffle_buffer_size=pipeline_config[INBATCH_PIPELINE_NAME][SHUFFLE_BUFFER_SIZE],
+            shuffle_positive=pipeline_config[INBATCH_PIPELINE_NAME][SHUFFLE_POSITIVE]
         )
         datasets[INBATCH_PIPELINE_NAME] = inbatch_pipeline.build()
 
@@ -997,7 +1016,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             contrastive_size=pipeline_config[POS_PIPELINE_NAME][CONTRASTIVE_SIZE],
             data_source=pipeline_config[DATA_SOURCE][DataSourceType.ALL_POS_ONLY],
             deterministic=pipeline_config[POS_PIPELINE_NAME][DETERMINISTIC],
-            shuffle_buffer_size=pipeline_config[SHUFFLE_BUFFER_SIZE]
+            shuffle_buffer_size=pipeline_config[POS_PIPELINE_NAME][SHUFFLE_BUFFER_SIZE],
+            shuffle_positive = pipeline_config[POS_PIPELINE_NAME][SHUFFLE_POSITIVE],
         )
         datasets[POS_PIPELINE_NAME] = pos_pipeline.build()
 
@@ -1010,7 +1030,8 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             limit_hardnegs=pipeline_config[LIMIT_HARDNEGS],
             data_source=pipeline_config[DATA_SOURCE][DataSourceType.HARD_ONLY],
             deterministic=pipeline_config[POSHARD_PIPELINE_NAME][DETERMINISTIC],
-            shuffle_buffer_size=pipeline_config[SHUFFLE_BUFFER_SIZE]
+            shuffle_buffer_size=pipeline_config[POSHARD_PIPELINE_NAME][SHUFFLE_BUFFER_SIZE],
+            shuffle_positive=pipeline_config[POSHARD_PIPELINE_NAME][SHUFFLE_POSITIVE]
         )
         datasets[POSHARD_PIPELINE_NAME] = poshard_pipeline.build()
 

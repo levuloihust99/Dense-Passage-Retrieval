@@ -17,6 +17,7 @@ CONTRASTIVE_SIZE = "contrastive_size"
 USE_GRADIENT_CACHE = "use_gradient_cache"
 DETERMINISTIC = "deterministic"
 LOGGING_STEPS = "logging_steps"
+SHUFFLE_POSITIVE = "shuffle_positive"
 
 # pipeline-independent
 DATA_SOURCE = "data_source"
