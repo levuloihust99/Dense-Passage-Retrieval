@@ -1003,7 +1003,7 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             deterministic=pipeline_config[INBATCH_PIPELINE_NAME][DETERMINISTIC],
             use_hardneg=pipeline_config[INBATCH_PIPELINE_NAME][USE_HARDNEG_INBATCH],
             use_num_hardnegs=pipeline_config[INBATCH_PIPELINE_NAME][USE_NUM_HARDNEGS_INBATCH],
-            shuffle_buffer_size=pipeline_config[INBATCH_PIPELINE_NAME][SHUFFLE_BUFFER_SIZE],
+            shuffle_buffer_size=pipeline_config[SHUFFLE_BUFFER_SIZE],
             shuffle_positive=pipeline_config[INBATCH_PIPELINE_NAME][SHUFFLE_POSITIVE]
         )
         datasets[INBATCH_PIPELINE_NAME] = inbatch_pipeline.build()
@@ -1016,7 +1016,7 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             contrastive_size=pipeline_config[POS_PIPELINE_NAME][CONTRASTIVE_SIZE],
             data_source=pipeline_config[DATA_SOURCE][DataSourceType.ALL_POS_ONLY],
             deterministic=pipeline_config[POS_PIPELINE_NAME][DETERMINISTIC],
-            shuffle_buffer_size=pipeline_config[POS_PIPELINE_NAME][SHUFFLE_BUFFER_SIZE],
+            shuffle_buffer_size=pipeline_config[SHUFFLE_BUFFER_SIZE],
             shuffle_positive = pipeline_config[POS_PIPELINE_NAME][SHUFFLE_POSITIVE],
         )
         datasets[POS_PIPELINE_NAME] = pos_pipeline.build()
@@ -1030,7 +1030,7 @@ def get_pipelines(pipeline_config: Dict[Text, Any]):
             limit_hardnegs=pipeline_config[LIMIT_HARDNEGS],
             data_source=pipeline_config[DATA_SOURCE][DataSourceType.HARD_ONLY],
             deterministic=pipeline_config[POSHARD_PIPELINE_NAME][DETERMINISTIC],
-            shuffle_buffer_size=pipeline_config[POSHARD_PIPELINE_NAME][SHUFFLE_BUFFER_SIZE],
+            shuffle_buffer_size=pipeline_config[SHUFFLE_BUFFER_SIZE],
             shuffle_positive=pipeline_config[POSHARD_PIPELINE_NAME][SHUFFLE_POSITIVE]
         )
         datasets[POSHARD_PIPELINE_NAME] = poshard_pipeline.build()
