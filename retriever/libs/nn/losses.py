@@ -1,4 +1,8 @@
-from typing import Dict, Literal, Text, Optional
+from typing import Dict, Text, Optional
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 import tensorflow as tf
 
 

@@ -14,7 +14,8 @@ def get_adamw(
     weight_decay_rate: float = 0.01,
     eps: float = 1e-6,
     beta_1: float = 0.9,
-    beta_2: float = 0.999
+    beta_2: float = 0.999,
+    gradient_clip_norm: float = 1.0
 ):
     decay_schedule = tf.keras.optimizers.schedules.PolynomialDecay(
         initial_learning_rate=learning_rate,
@@ -34,5 +35,7 @@ def get_adamw(
         beta_1=beta_1,
         beta_2=beta_2,
         epsilon=eps,
-        exclude_from_weight_decay=['LayerNorm', 'layer_norm', 'bias']
+        exclude_from_weight_decay=['LayerNorm', 'layer_norm', 'bias'],
+        gradient_clip_norm=-1.0, # this is a bug in tf-models-official 2.4.0
+        clipnorm=gradient_clip_norm
     )

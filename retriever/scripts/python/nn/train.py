@@ -147,6 +147,11 @@ def main():
             num_train_steps=config.num_train_steps,
             warmup_steps=num_warmup_steps,
             learning_rate=config.learning_rate,
+            weight_decay_rate=config.weight_decay_rate,
+            eps=config.adam_eps,
+            beta_1=config.beta_1,
+            beta_2=config.beta_2,
+            gradient_clip_norm=config.max_grad_norm
         )
         logger.info("Done creating optimizer in {}s".format(
             time.perf_counter() - start_time))

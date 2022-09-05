@@ -49,6 +49,10 @@ class DualEncoderConfig(CommonConfig):
         self.weight_decay_rate = 0.01
         self.num_warmup_steps = 1000
         self.warmup_proportions = 0.1
+        self.max_grad_norm = 1.0
+        self.adam_eps = 1e-6
+        self.beta_1 = 0.9
+        self.beta_2 = 0.999
 
         # logging
         self.logging_steps = 100

@@ -3,7 +3,11 @@ import logging
 import json
 import pickle
 import os
-from typing import Text, Dict, List, Union, Literal
+from typing import Text, Dict, List, Union
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 import tensorflow as tf
 from tqdm import tqdm
 import jsonlines
