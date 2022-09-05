@@ -815,8 +815,8 @@ class InbatchPipeline(Pipeline):
             positive_context_input_ids, positive_context_attention_mask = InbatchPipeline.sample_attribute(
                 item["positive_context/input_ids"], item["positive_context/attention_mask"])
         else:
-            positive_context_input_ids = item["positive_context/input_ids"]
-            positive_context_attention_mask = item["positive_context/attention_ask"]
+            positive_context_input_ids = item["positive_context/input_ids"][0]
+            positive_context_attention_mask = item["positive_context/attention_mask"][0]
         if self.use_hardneg:
             hardneg_context_input_ids = item["hardneg_context/input_ids"]
             hardneg_context_attention_mask = item["hardneg_context/attention_mask"]
