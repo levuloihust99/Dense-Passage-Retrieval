@@ -183,8 +183,7 @@ class DualEncoderTrainer(object):
         self._available_pipelines = available_pipelines
         self._index_boundaries = [sum(num_continuous_steps[:idx])
                                   for idx in range(len(num_continuous_steps) + 1)]
-        self._cycle_walk = regulate_factor + \
-            sum(poshard_and_hard_num_continuous_steps)
+        self._cycle_walk = sum(num_continuous_steps)
 
     def _pipeline_name_from_index(self, index):
         """Get pipeline type from index, i.e. the relative position in a cycle walk."""
