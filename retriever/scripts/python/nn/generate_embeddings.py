@@ -145,8 +145,14 @@ def main():
 
 def generate_embeddings_and_faiss_index():
     embeddings = generate_embeddings(context_encoder, dataset, strategy)
-    with tf.io.gfile.GFile(config.corpus_path, "r") as reader:
-        corpus = json.load(reader)
+    if config.corpus_format == "json":
+        with tf.io.gfile.GFile(config.corpus_path, "r") as reader:
+            corpus = json.load(reader)
+    else:
+        corpus = []
+        with tf.io.gfile.GFile(config.corpus_path, "r") as reader:
+            for line in reader:
+                corpus.append(json.loads(line.strip()))
     embeddings = embeddings[:len(corpus)]
     embeddings = [e.numpy() for e in embeddings]
 

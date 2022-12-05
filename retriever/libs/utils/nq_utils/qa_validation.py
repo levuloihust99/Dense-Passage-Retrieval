@@ -123,3 +123,9 @@ def regex_match(text, pattern):
 
 def _normalize(text):
     return unicodedata.normalize("NFD", text)
+
+
+def normalize_question(question: str) -> str:
+    if question[-1] == '?':
+        question = question[:-1]
+    return question

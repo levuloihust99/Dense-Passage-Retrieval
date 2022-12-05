@@ -85,6 +85,10 @@ configs/
 /es-db/
 /*.json
 /*.txt
-helpers.py
 /kms/
 /medquad/
+/experiments/
+tmp/
+/debug.py
+/helpers.py
+/pipeline_config.json
