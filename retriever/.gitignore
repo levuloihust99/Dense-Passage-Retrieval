@@ -82,3 +82,9 @@ notes.md
 backup/
 configs/
 010822-150922/
+/es-db/
+/*.json
+/*.txt
+helpers.py
+/kms/
+/medquad/
