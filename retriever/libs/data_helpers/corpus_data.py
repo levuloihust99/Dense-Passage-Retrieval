@@ -193,6 +193,7 @@ def main():
     parser.add_argument("--tfrecord-dir", required=True)
     parser.add_argument("--tokenizer-type", default="roberta")
     parser.add_argument("--tokenizer-path", default="vinai/phobert-base")
+    parser.add_argument("--tokenizer-config", default=r"{}")
     parser.add_argument("--max-context-length", type=int, default=256)
     parser.add_argument("--num-examples-per-file", type=int, default=5000)
     parser.add_argument("--num-processes", type=int, default=1)
@@ -209,7 +210,8 @@ def main():
         corpus = jsonlines.open(args.corpus_path, "r")
 
     global tokenizer
-    tokenizer = TOKENIZER_MAPPING[args.tokenizer_type].from_pretrained(args.tokenizer_path)
+    tokenizer_config = json.loads(args.tokenizer_config)
+    tokenizer = TOKENIZER_MAPPING[args.tokenizer_type].from_pretrained(args.tokenizer_path, **tokenizer_config)
 
     if args.num_processes > 1:
         parallel_processing()
