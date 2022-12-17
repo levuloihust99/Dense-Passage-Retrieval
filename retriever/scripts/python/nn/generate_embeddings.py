@@ -180,6 +180,11 @@ def generate_embeddings_and_faiss_index():
     indexer.serialize(config.index_path)
 
 
+def corpus_generator(reader):
+    for line in reader:
+        yield json.loads(line.strip())
+
+
 def generate_embeddings_and_sequential_write():
     graph_key = "generate_embeddings::{}".format(id(context_encoder))
     if graph_key in graph_cache:
@@ -197,11 +202,17 @@ def generate_embeddings_and_sequential_write():
             return pooled_output
     
     read_stream = tf.io.gfile.GFile(config.corpus_path)
-    corpus = jsonlines.Reader(read_stream)
-    for _ in tqdm(range(config.skip_size)):
-        corpus.read()
-    
-    if tf.io.gfile.exists(config.embedding_dir):
+    if config.corpus_format == "json":
+        corpus = json.load(read_stream)
+        corpus = corpus[config.skip_size:]
+    elif config.corpus == "jsonlines":
+        corpus = corpus_generator(read_stream)
+        for _ in tqdm(range(config.skip_size)):
+            next(corpus)
+    else:
+        raise Exception("This type of corpus format is not supported. Type: {}".format(config.corpus_format))
+
+    if not tf.io.gfile.exists(config.embedding_dir):
         tf.io.gfile.makedirs(config.embedding_dir)
 
     counter = config.skip_counter
@@ -219,7 +230,7 @@ def generate_embeddings_and_sequential_write():
             
             # data to be dumped
             num_dumped = to_be_dumped_embedding.shape.as_list()[0]
-            auxiliary_info = [corpus.read() for _ in range(num_dumped)]
+            auxiliary_info = [item for item in corpus]
             data_to_be_dumped = [(info["article_id"], emb) for emb, info in zip(to_be_dumped_embedding, auxiliary_info)]
 
             # dumping
