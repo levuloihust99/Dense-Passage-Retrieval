@@ -284,9 +284,7 @@ class DualEncoderTrainer(object):
             exit(0)
         # debug />
 
-        should_accumulate = self.config.pipeline_config[pipeline_type][NUM_BACKWARD_ACCUMULATE_STEPS] == 1 \
-            and self.config.pipeline_config[pipeline_type][USE_GRADIENT_ACCUMULATE]
-        
+        should_accumulate = self.config.pipeline_config[pipeline_type][USE_GRADIENT_ACCUMULATE]
         if should_accumulate:
             step_fn = self.get_step_fn_accumulate(pipeline_type)
             loss, grads = self.accumulate_step(step_fn, items)
