@@ -1,5 +1,6 @@
 import os
 import pickle
+import argparse
 import json
 import logging
 from ruamel.yaml import YAML
@@ -7,42 +8,37 @@ from libs.faiss_indexer import DenseFlatIndexer
 import numpy as np
 from libs.utils.logging import add_color_formater
 
+yaml = YAML()
+
 logging.basicConfig(level=logging.INFO)
 add_color_formater(logging.root)
 logger = logging.getLogger(__name__)
 
 
 def main():
-    yaml = YAML()
-    with open("kms/configs/merge_index.yml") as reader:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config-path", required=True)
+    args = parser.parse_args()
+
+    with open(args.config_path) as reader:
         config = yaml.load(reader)
 
     out_path = config['output_index_path']
-    config = config['input_indexes']
-    base_indexer = DenseFlatIndexer()
-    base_indexer.deserialize(config[0]['index_path'])
+    out_indexer = DenseFlatIndexer()
+    out_indexer.init_index(768)
 
-    for cfg in config[1:]:
-        if cfg['embedding_path']:
-            files = os.listdir(cfg['embedding_path'])
-            files = sorted(files)
-            all_embs = []
-            for f in files:
-                with open(os.path.join(cfg['embedding_path'], f), "rb") as reader:
-                    embs = pickle.load(reader)
-                    all_embs.extend(embs)
-            all_embs = [emb[1] for emb in all_embs]
-            all_embs = np.stack(all_embs, axis=0)
-        else:
-            tmp_indexer = DenseFlatIndexer()
-            tmp_indexer.deserialize(cfg['index_path'])
-            all_embs = tmp_indexer.index.reconstruct_n(0, tmp_indexer.index.ntotal)
-        with open(cfg['corpus_meta'], "r") as reader:
-            meta = json.load(reader)
-        data_tobe_indexed = [(meta[i], all_embs[i]) for i in range(len(meta))]
-        base_indexer.index_data(data_tobe_indexed)
-    
-    base_indexer.serialize(out_path)
+    data_tobe_indexed = []
+    for index_cfg in config['input_indexes']:
+        index_path = index_cfg['index_path']
+        indexer = DenseFlatIndexer()
+        indexer.deserialize(index_path)
+        ntotal = indexer.index.ntotal
+        vectors = indexer.index.reconstruct_n(0, ntotal)
+        for meta, v in zip(indexer.meta, vectors):
+            data_tobe_indexed.append((meta, v))
+
+    out_indexer.index_data(data_tobe_indexed)
+    out_indexer.serialize(out_path)
         
 
 if __name__ == "__main__":

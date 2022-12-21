@@ -1,3 +1,5 @@
+import json
+import requests
 import argparse
 import logging
 import tensorflow as tf
@@ -38,6 +40,12 @@ def retrieve(request):
     data = request.json
     query = data['query']
     logger.debug("\x1b[38;5;11;1mReceived query: {}\x1b[0m".format(query))
+    if args.do_lowercase:
+        query = query.lower()
+    if args.do_segment:
+        headers = {'Content-Type': 'application/json'}
+        segment_resp = requests.post(args.segment_endpoint, data=json.dumps({'sentence': query}), headers=headers)
+        query = segment_resp.json()['sentence']
 
     top_docs = data.get('top_docs', 10)
     query_tokens = tokenizer.tokenize(query)
@@ -61,10 +69,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--architecture", choices=["bert", "roberta"], default="bert")
     parser.add_argument("--tokenizer-path", default="bert-base-uncased")
+    parser.add_argument("--tokenizer-config", default=r"{}")
     parser.add_argument("--pretrained-model-path", default="bert-base-uncased")
     parser.add_argument("--checkpoint-path", required=True)
     parser.add_argument("--index-path", required=True)
-    parser.add_argument("--port", type=int, default=5053)
+    parser.add_argument("--do-segment", action='store_true')
+    parser.add_argument("--do-lowercase", action="store_true")
+    parser.add_argument("--segment-endpoint", default="http://localhost:8088/segment")
+    parser.add_argument("--port", type=int, default=5054)
 
     global args
     args = parser.parse_args()
@@ -73,7 +85,8 @@ def main():
 
     global tokenizer
     tokenizer_class = TOKENIZER_MAPPING[args.architecture]
-    tokenizer = tokenizer_class.from_pretrained(args.tokenizer_path)
+    tokenizer_config = json.loads(args.tokenizer_config)
+    tokenizer = tokenizer_class.from_pretrained(args.tokenizer_path, **tokenizer_config)
 
     global indexer
     indexer = DenseFlatIndexer()
