@@ -92,3 +92,4 @@ tmp/
 /debug.py
 /helpers.py
 /pipeline_config.json
+/sample/
