@@ -205,7 +205,7 @@ def generate_embeddings_and_sequential_write():
     if config.corpus_format == "json":
         corpus = json.load(read_stream)
         corpus = corpus[config.skip_size:]
-    elif config.corpus == "jsonlines":
+    elif config.corpus_format == "jsonlines":
         corpus = corpus_generator(read_stream)
         for _ in tqdm(range(config.skip_size)):
             next(corpus)
