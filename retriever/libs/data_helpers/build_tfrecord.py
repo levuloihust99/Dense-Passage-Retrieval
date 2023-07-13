@@ -31,10 +31,12 @@ def tokenize_context(
     context: Dict[Text, Text],
     max_context_length: int
 ) -> Dict[Text, List[int]]:
-    title_tokens = tokenizer.tokenize(context["title"])
     text_tokens = tokenizer.tokenize(context["text"])
-    tokens = title_tokens + [tokenizer.sep_token] + text_tokens
-    # truncate
+    if context["title"]:
+        title_tokens = tokenizer.tokenize(context["title"])
+        tokens = title_tokens + [tokenizer.sep_token] + text_tokens
+    else:
+        tokens = text_tokens    # truncate
     if len(tokens) > max_context_length - 2:
         tokens = tokens[:max_context_length - 2]
     tokens = [tokenizer.cls_token] + tokens + [tokenizer.sep_token]
