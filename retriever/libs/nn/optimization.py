@@ -37,5 +37,5 @@ def get_adamw(
         epsilon=eps,
         exclude_from_weight_decay=['LayerNorm', 'layer_norm', 'bias'],
         gradient_clip_norm=-1.0, # this is a bug in tf-models-official 2.4.0
-        clipnorm=gradient_clip_norm
+        global_clipnorm=gradient_clip_norm
     )
